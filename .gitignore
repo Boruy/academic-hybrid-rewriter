@@ -1,0 +1,9 @@
+# Machine-specific environments, caches and build products only.
+# Data, checkpoints, tokenizers, reports and material archives are tracked.
+.build/
+.cache/
+__pycache__/
+*.pyc
+.venv/
+.venv.before-repair*/
+*.egg-info/

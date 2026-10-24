@@ -1,0 +1,51 @@
+D:\conda\envs\tee\Lib\site-packages\transformers\tokenization_utils_base.py:1601: FutureWarning: `clean_up_tokenization_spaces` was not set. It will be set to `True` by default. This behavior will be depracted in transformers v4.45, and will be then set to `False` by default. For more details check this issue: https://github.com/huggingface/transformers/issues/31884
+  warnings.warn(
+Some non-default generation parameters are set in the model config. These should go into a GenerationConfig file (https://huggingface.co/docs/transformers/generation_strategies#save-a-custom-decoding-strategy-with-your-model) instead. This warning will be raised to an exception in v4.41.
+Non-default generation parameters: {'forced_eos_token_id': 2}
+D:\conda\envs\tee\Lib\site-packages\transformers\models\bart\modeling_bart.py:496: UserWarning: 1Torch was not compiled with flash attention. (Triggered internally at ..\aten\src\ATen\native\transformers\cuda\sdp_utils.cpp:263.)
+  attn_output = torch.nn.functional.scaled_dot_product_attention(
+{
+  "model": "transformer",
+  "initialization": "random tiny BART",
+  "backend": null,
+  "fusion": null,
+  "seed": 42,
+  "steps": 30,
+  "train_pairs": 64,
+  "validation_pairs": 16,
+  "max_length": 128,
+  "batch_size": 4,
+  "learning_rate": 0.001,
+  "fixed_train_batch_loss_before": 7.7780914306640625,
+  "fixed_train_batch_loss_after": 6.570560455322266,
+  "validation_cross_entropy": 6.84128053948797,
+  "seconds_training": 0.7803656000000956,
+  "peak_cuda_allocated_mib": 31.607421875,
+  "parameters": 254720,
+  "trainable_parameters": 254720,
+  "train_truncated_sources": 0,
+  "train_truncated_targets": 0,
+  "device": "cuda",
+  "gpu": "NVIDIA GeForce RTX 4060 Laptop GPU",
+  "torch": "2.2.0+cu121",
+  "experiment_type": "pipeline smoke test, not a quality comparison",
+  "test_set_used": false,
+  "args": {
+    "model": "transformer",
+    "tiny": true,
+    "pretrained": "facebook/bart-base",
+    "backend": "reference",
+    "fusion": "gated",
+    "freeze_backbone": false,
+    "data": "data/processed",
+    "output": "runs/transformer_smoke",
+    "steps": 30,
+    "train_limit": 64,
+    "val_limit": 16,
+    "batch_size": 4,
+    "max_length": 128,
+    "lr": 0.001,
+    "seed": 42,
+    "device": null
+  }
+}

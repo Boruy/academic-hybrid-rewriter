@@ -1,0 +1,69 @@
+{
+  "seed": 42,
+  "raw_counts": {
+    "train": 3254,
+    "dev": 400,
+    "test": 364
+  },
+  "raw_total": 4018,
+  "kept_total": 676,
+  "rejections": {
+    "excluded_intent": 449,
+    "length_ratio": 14,
+    "number_change": 22,
+    "word_length": 7,
+    "empty_or_identity": 9,
+    "non_arxiv_document": 2841
+  },
+  "components": 95,
+  "split_policy": "80/10/10 of connected document groups, not sentence counts",
+  "splits": {
+    "train": {
+      "pairs": 491,
+      "documents": 76,
+      "intents": {
+        "fluency": 123,
+        "clarity": 355,
+        "style": 13
+      }
+    },
+    "validation": {
+      "pairs": 98,
+      "documents": 9,
+      "intents": {
+        "fluency": 26,
+        "clarity": 69,
+        "style": 3
+      }
+    },
+    "test": {
+      "pairs": 87,
+      "documents": 10,
+      "intents": {
+        "clarity": 67,
+        "style": 8,
+        "fluency": 12
+      }
+    }
+  },
+  "leakage": {
+    "train__validation": {
+      "shared_docs": 0,
+      "shared_exact_texts": 0
+    },
+    "train__test": {
+      "shared_docs": 0,
+      "shared_exact_texts": 0
+    },
+    "validation__test": {
+      "shared_docs": 0,
+      "shared_exact_texts": 0
+    }
+  },
+  "upstream_shared_documents": {
+    "train__dev": 13,
+    "train__test": 16,
+    "dev__test": 0
+  },
+  "limitation": "Exact text checks do not detect semantic near duplicates. Intent labels do not guarantee academic tone or factual equivalence."
+}

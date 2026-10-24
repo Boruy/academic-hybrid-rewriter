@@ -1,0 +1,68 @@
+{
+  "seed": 42,
+  "raw_counts": {
+    "train": 21,
+    "dev": 0,
+    "test": 0
+  },
+  "raw_total": 21,
+  "kept_total": 21,
+  "rejections": {},
+  "components": 20,
+  "split_policy": "80/10/10 of connected document groups, not sentence counts",
+  "splits": {
+    "train": {
+      "pairs": 16,
+      "documents": 16,
+      "intents": {
+        "style": 16
+      }
+    },
+    "validation": {
+      "pairs": 2,
+      "documents": 2,
+      "intents": {
+        "style": 2
+      }
+    },
+    "test": {
+      "pairs": 3,
+      "documents": 3,
+      "intents": {
+        "style": 3
+      }
+    }
+  },
+  "leakage": {
+    "train__validation": {
+      "shared_docs": 0,
+      "shared_exact_texts": 0
+    },
+    "train__test": {
+      "shared_docs": 0,
+      "shared_exact_texts": 0
+    },
+    "validation__test": {
+      "shared_docs": 0,
+      "shared_exact_texts": 0
+    }
+  },
+  "upstream_shared_documents": {
+    "train__dev": 0,
+    "train__test": 0,
+    "dev__test": 0
+  },
+  "limitation": "Exact text checks do not detect semantic near duplicates. Intent labels do not guarantee academic tone or factual equivalence."
+}
+
+test_document_and_text_leakage (test_pipeline.PipelineTests.test_document_and_text_leakage) ... ok
+test_hybrid_loss_generation_and_padding (test_pipeline.PipelineTests.test_hybrid_loss_generation_and_padding) ... D:\conda\envs\tee\Lib\site-packages\transformers\tokenization_utils_base.py:1601: FutureWarning: `clean_up_tokenization_spaces` was not set. It will be set to `True` by default. This behavior will be depracted in transformers v4.45, and will be then set to `False` by default. For more details check this issue: https://github.com/huggingface/transformers/issues/31884
+  warnings.warn(
+ok
+test_normalization_and_numbers (test_pipeline.PipelineTests.test_normalization_and_numbers) ... ok
+test_reference_mask_and_gradients (test_pipeline.PipelineTests.test_reference_mask_and_gradients) ... ok
+
+----------------------------------------------------------------------
+Ran 4 tests in 2.433s
+
+OK

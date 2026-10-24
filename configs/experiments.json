@@ -1,0 +1,32 @@
+{
+  "smoke": {
+    "tiny": true,
+    "steps": 30,
+    "train_limit": 64,
+    "val_limit": 16,
+    "max_length": 128,
+    "batch_size": 4,
+    "seed": 42,
+    "learning_rate": 0.001
+  },
+  "planned_main": {
+    "pretrained": "facebook/bart-base",
+    "seeds": [
+      13,
+      42,
+      2026
+    ],
+    "models": [
+      "transformer",
+      "hybrid"
+    ],
+    "fusions": [
+      "gated",
+      "residual",
+      "replace"
+    ],
+    "selection": "validation only",
+    "test": "once after protocol freeze",
+    "status": "not run"
+  }
+}

@@ -1,0 +1,28 @@
+{
+  "detection": {
+    "revise": true,
+    "issues": [
+      {
+        "start": 3,
+        "end": 12,
+        "text": "looked at",
+        "reason": "Check conversational or vague wording"
+      },
+      {
+        "start": 13,
+        "end": 21,
+        "text": "a lot of",
+        "reason": "Consider a more precise quantifier"
+      }
+    ],
+    "method": "heuristic prototype",
+    "warning": "A negative result does not establish acceptable academic style."
+  },
+  "source": "We looked at a lot of samples.",
+  "suggestion": "",
+  "numbers_preserved": true,
+  "review_required": true,
+  "checkpoint_type": "pipeline smoke test, not a quality comparison",
+  "warning": "Tiny smoke checkpoints are unsuitable for academic rewriting. Inspect facts, numbers, hedging and citations before accepting any output."
+}
+

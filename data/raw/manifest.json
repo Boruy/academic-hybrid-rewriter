@@ -1,0 +1,22 @@
+{
+  "dataset": "wanyu/IteraTeR_human_sent",
+  "revision": "e22e0371dac444239b944f9293f5b491d62b73f0",
+  "files": {
+    "train.json": {
+      "sha256": "0b1d1dbe74e2a68495cd0770746899c354cf6787450fc6b14b7ee1f95914eb4c",
+      "bytes": 2449295
+    },
+    "dev.json": {
+      "sha256": "7e60c860608a853e55e3b702d104039ab15235e732e5bbe78bade0b81a739189",
+      "bytes": 292355
+    },
+    "test.json": {
+      "sha256": "1a30452c33bd5379ff56159016d68ecd7e2669ede1e4ea77244c6e300952e9cb",
+      "bytes": 294380
+    },
+    "README.md": {
+      "sha256": "bce7ed1c2b2853aa94548bf43f46f425f91ac8f2c08436b4ddf519b4ffc14be2",
+      "bytes": 575
+    }
+  }
+}

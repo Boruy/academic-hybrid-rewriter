@@ -1,0 +1,52 @@
+[
+  {
+    "id": "177f4f90a1ac90a5",
+    "source": "Our code is available at URL",
+    "target": "The code is available at URL",
+    "intent": "style",
+    "doc_id": "2009.09737",
+    "upstream_split": "train",
+    "upstream_line": 660,
+    "group_id": "2009.09737"
+  },
+  {
+    "id": "4248475752de920c",
+    "source": "Discovering new intents is a crucial task in a dialogue system .",
+    "target": "Discovering new intents is a crucial task in dialogue systems .",
+    "intent": "style",
+    "doc_id": "2012.08987",
+    "upstream_split": "train",
+    "upstream_line": 778,
+    "group_id": "2012.08987"
+  },
+  {
+    "id": "a09c399cb4516bc0",
+    "source": "In this paper , we compare how humans and machines represent the meaning of words.",
+    "target": "In this article , we compare how humans and machines represent the meaning of words.",
+    "intent": "style",
+    "doc_id": "2008.01766",
+    "upstream_split": "train",
+    "upstream_line": 564,
+    "group_id": "2008.01766"
+  },
+  {
+    "id": "e0499311dc053c85",
+    "source": "For this task, we introduce SciFact, a dataset of 1.4K expert-written scientific claims paired with evidence-containing abstracts , and annotated with labels and rationales.",
+    "target": "For this task, we construct SciFact, a dataset of 1.4K expert-written scientific claims paired with evidence-containing abstracts , and annotated with labels and rationales.",
+    "intent": "style",
+    "doc_id": "2004.14974",
+    "upstream_split": "train",
+    "upstream_line": 226,
+    "group_id": "2004.14974"
+  },
+  {
+    "id": "bd3aa212833099d1",
+    "source": "This suggests that the internal representations induced from natural languages are typologically coherent: they encode the features and differences outlined in typological studies .",
+    "target": "This suggests that the internal representations induced from natural languages correspond to the cross-linguistic syntactic properties studied in linguistic typology .",
+    "intent": "style",
+    "doc_id": "2004.14601",
+    "upstream_split": "train",
+    "upstream_line": 209,
+    "group_id": "2004.14601"
+  }
+]
