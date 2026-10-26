@@ -1,0 +1,7 @@
+{"step": 0, "validation_cross_entropy": 1.4581825448880907, "fixed_train_batch_loss": 0.5176745057106018, "learning_rate": 2e-05, "next_learning_rate": 2e-05}
+{"step": 50, "validation_cross_entropy": 1.1806128454734006, "fixed_train_batch_loss": 0.353940486907959, "learning_rate": 2e-05, "next_learning_rate": 2e-05}
+{"step": 100, "validation_cross_entropy": 1.1236278937547919, "fixed_train_batch_loss": 0.3218482732772827, "learning_rate": 2e-05, "next_learning_rate": 2e-05}
+{"step": 150, "validation_cross_entropy": 1.0696646474752238, "fixed_train_batch_loss": 0.19456370174884796, "learning_rate": 2e-05, "next_learning_rate": 2e-05}
+{"step": 200, "validation_cross_entropy": 1.0682159639808184, "fixed_train_batch_loss": 0.20187388360500336, "learning_rate": 2e-05, "next_learning_rate": 2e-05}
+{"step": 250, "validation_cross_entropy": 1.0931283114679442, "fixed_train_batch_loss": 0.1634306013584137, "learning_rate": 2e-05, "next_learning_rate": 2e-05}
+{"step": 300, "validation_cross_entropy": 1.0794751290242275, "fixed_train_batch_loss": 0.14075617492198944, "learning_rate": 2e-05, "next_learning_rate": 1e-05}

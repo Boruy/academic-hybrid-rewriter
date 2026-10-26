@@ -8,7 +8,7 @@ $ProjectPython = Join-Path $VenvRoot 'Scripts\python.exe'
 
 function Assert-CommandSucceeded([string]$Action) {
     if ($LASTEXITCODE -ne 0) {
-        throw "$Action failed. See docs/Environment_Troubleshooting_zh.md."
+        throw "$Action failed. See docs/Environment_Setup.md."
     }
 }
 

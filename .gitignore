@@ -1,9 +1,17 @@
-# Machine-specific environments, caches and build products only.
-# Data, checkpoints, tokenizers, reports and material archives are tracked.
-.build/
-.cache/
-__pycache__/
-*.pyc
+# Local runtime dependencies and generated working files
 .venv/
 .venv.before-repair*/
+.cache/
+.build/
+.chart-data-*/
+__pycache__/
+*.py[cod]
 *.egg-info/
+~$*
+.DS_Store
+Thumbs.db
+# Credentials and local secrets
+.env
+.env.*
+!.env.example
+.aws/

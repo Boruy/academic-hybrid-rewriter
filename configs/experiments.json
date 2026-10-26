@@ -26,7 +26,32 @@
       "replace"
     ],
     "selection": "validation only",
-    "test": "once after protocol freeze",
+    "test": "fresh confirmatory data or revised protocol after existing test inspection",
     "status": "not run"
+  },
+  "measured_lr_tuning": {
+    "model": "hybrid",
+    "pretrained": "facebook/bart-base",
+    "backend": "reference",
+    "fusion": "gated",
+    "freeze_backbone": false,
+    "seed": 42,
+    "steps": 300,
+    "train_pairs": 491,
+    "validation_pairs": 98,
+    "batch_size": 2,
+    "max_length": 128,
+    "constant_rates": [
+      0.00002,
+      0.00001,
+      0.000005
+    ],
+    "selected_learning_rate": 0.00002,
+    "selected_scheduler": "constant",
+    "eval_every": 50,
+    "status": "completed; final validation cross-entropy selection, single seed",
+    "test_set_used": false,
+    "report": "docs/Learning_Rate_Analysis.md",
+    "results": "runs/lr_tuning_offline/comparison.json"
   }
 }

@@ -1,51 +1,43 @@
 # Architecture and experiment protocol
 
-## Current implementation
+Status: 26 October 2026.
 
-Input sentence → heuristic detector → optional author-approved rewriting → BART encoder → normalized Mamba refinement → fusion → BART decoder → author review.
+## Implemented model
 
-The detector currently matches explicit conversational/vague patterns and outputs spans and reasons. It is a demonstration fallback and cannot measure academic style accuracy. A supervised detector with independently annotated revise/keep examples remains planned. Do not create gold labels by treating every edited source as weak and every target as ideal.
+A heuristic detector flags conversational or vague patterns. The author can request rewriting and reviews the suggestion. The rewriter uses a pretrained BART encoder, a normalized Mamba adapter, feature fusion and the BART decoder.
 
-Let H be the Transformer encoder states and M = Mamba(LayerNorm(H)). The current fusion choices are:
+Let H denote the encoder states and M = Mamba(LayerNorm(H)). Implemented fusion modes are:
 
 - residual: Z = H + M
 - gated: G = sigmoid(W[H; M] + b), Z = H + G ⊙ M
-- replace (skip-path ablation): Z = M
+- replace: Z = M, for a skip-path ablation
 
-The decoder cross-attends to Z and predicts target tokens with teacher forcing. Training minimizes target-token cross-entropy and ignores padding labels. Inference uses the same encoder/fusion path and autoregressive decoding. Right padding keeps causal Mamba outputs independent of later pad tokens. The adapter is unidirectional because each Transformer state already has bidirectional source context. A hybrid still contains Transformer attention; this design does not make the full model linear-time.
+The decoder cross-attends to Z. Training minimizes target-token cross-entropy and ignores padding labels. Generation uses the same encoder/fusion path. Right padding prevents later padding tokens from changing earlier causal adapter states. The unidirectional adapter receives encoder states that already contain bidirectional source context.
 
-ReferenceMamba uses the Mamba-1 pattern: input projection and gate, causal depthwise convolution, input-dependent delta/B/C, negative diagonal A, recurrent discretized state updates, D skip term and output projection. It is an educational sequential PyTorch implementation. Official-kernel numerical parity and GPU efficiency are unverified. The official backend imports mamba_ssm explicitly and fails if unavailable.
+The reference module follows the Mamba-1 pattern with projection, a gate, causal depthwise convolution, input-dependent selective state updates and an output projection. It uses a sequential PyTorch scan. Official-kernel numerical parity, gradient equivalence and optimized efficiency are unverified. The hybrid retains Transformer attention and does not make the full model linear-time. The optional official backend fails explicitly if unavailable.
 
-The 30-step runs use random tiny BART (64 hidden dimensions, one encoder layer, one decoder layer, two attention heads, 128 FFN units, a train-only word vocabulary), seed 42, batch 4 and length 128. Both runs initialize the same backbone before adding the adapter. They process the same 64 training records with the same seeded batch choices. The validation subset has 16 records. The two parameter counts differ. This is a pipeline check, not a controlled research comparison.
+## Completed experiments
 
-## Main study to run next
+Tiny Transformer and hybrid runs verify forward/backward, generation and checkpoint reload. Their random initialization does not produce useful rewrites.
 
-1. Expand and manually audit academic revision pairs. Establish independent academic-tone and meaning labels. Review source/target facts, numbers, negation, uncertainty and citations. Keep reviewers blind to model identity.
-2. Fine-tune facebook/bart-base on all training pairs. Choose hyperparameters and checkpoints using validation only. Add validation-based early stopping and save the best checkpoint. The fixed-step runner is a starting point for this extension.
-3. Add the adapter. Train new layers with the backbone frozen, then unfreeze selected pretrained layers. Verify official Mamba under Linux/WSL2. Record the exact kernel/package versions and check numerical/gradient behavior.
-4. Compare Transformer-only and Hybrid with the same splits, pretrained backbone, token limits, decode settings, update/data budget and seed list [13, 42, 2026]. Report parameters and optimization budget. A matched-parameter Transformer control will help separate extra capacity from architectural effects.
-5. Run residual/gated/replace ablations, holding all other choices fixed. Develop a conditional Mamba-only generator if the time/resource budget permits; report different pretraining rather than claiming architecture-only causality.
-6. Freeze the protocol, evaluate the held-out test once, and report mean and variation across seeds. Archive predictions with model/checkpoint IDs. Never tune on test examples.
+Pretrained runs initialize from facebook/bart-base. BART baseline, frozen hybrid and fully trainable hybrid use 491 training pairs, 98 validation pairs, batch size 2, length 128, 300 updates and seed 42. The learning rates are 5e-5, 1e-4 and 2e-5 respectively. Parameter counts, optimizer behavior and trainable capacity differ, so these runs cannot isolate an architectural effect.
 
-## Evaluation
+Controlled constant-rate comparisons for the full hybrid use 2e-5, 1e-5 and 5e-6 with matched data, initialization, seed, batches and update budget. Final validation CE selects 2e-5 within this limited pilot. Additional plateau scheduler trials remain available. See Learning_Rate_Analysis.md and runs/README.md.
 
-- Detection: independently annotated precision, recall and F1. A heuristic flag rate is not style accuracy.
-- Revision overlap: SacreBLEU and ROUGE-L with versions, tokenization and reference handling recorded. The current evaluator's whitespace ROUGE-L is a diagnostic and should not be mixed with differently tokenized published scores.
-- Meaning: BERTScore with a pinned encoder revision plus blind human checks of facts, numbers, negation, hedging and citations. These are complementary measures, not guarantees.
-- Academic tone: independently labeled human ratings or a held-out supervised classifier. Do not judge using labels generated by the same model.
-- Efficiency: parameters, median/p95 latency after warm-up with CUDA synchronization, training time and peak allocated GPU memory at matched lengths and batches. Current one-off smoke timings are not optimized benchmarks.
+## Training controls
 
-Suggested human study: 30–50 held-out examples, two reviewers, a 1–5 rubric for tone, fluency and meaning, plus binary factual-change flags. Final sample size depends on available course time. Report agreement and disagreements. A desired success condition is better tone with no unacceptable meaning degradation; no threshold or improvement has been established yet.
+The runner records per-step loss, a 20-step moving average, the applied learning rate and pre-clipping gradient norm. Optional periodic validation drives a ReduceLROnPlateau scheduler. It records validation CE, fixed-batch training loss and the next learning rate.
 
-## Suggested next dates and ownership
+The saved weights are from the final update. A best observed validation score does not imply a saved best checkpoint. Best-checkpoint saving, early stopping, schedulers beyond the implemented plateau mode and main-study optimization controls remain future work.
 
-These are team working targets, not teacher-issued deadlines.
+## Evaluation boundaries
 
-| Date | Owner from proposal | Reviewable output |
-|---|---|---|
-| Oct 25–31 | Licheng Wang, whole team | Audit 50 pairs, prepare independent detector labels, verify data/source terms |
-| Nov 1–7 | Haoxiang Ning | Pretrained BART baseline, validation checkpoint and error samples |
-| Nov 8–14 | Borui Ning | Official Mamba integration, hybrid runs and fusion ablations |
-| Nov 15–21 | Lingfeng Lu, whole team | Blind review, efficiency table, author-review demo and final analysis |
+The baseline and frozen hybrid have been evaluated on all 87 test pairs with deterministic decoding, a 128-token input limit and at most 48 new tokens. Test predictions have also been inspected in the visualization and presentation. This set is no longer unseen. It is separate from training and validation, but a confirmatory study needs new held-out data or a transparently revised protocol.
 
-Check final course deadlines before adopting the later dates. Sentence-level scope remains the priority. Paragraph support and a Mamba-only baseline are stretch work after the core comparison.
+Whitespace ROUGE-L is an overlap diagnostic. Number multiset preservation cannot detect changes to negation, hedging, entities or citations. Exact copying can earn a high overlap score while missing the intended revision. Independent academic-tone ratings and blinded meaning review remain pending.
+
+## Next study
+
+Audit source/reference pairs and collect independent tone and meaning judgments. Compare BART and hybrid models with matched splits, decoding, optimization budgets and seed list [13, 42, 2026]. Include a parameter-matched Transformer control and residual/gated/replace ablations. Use validation-only checkpoint selection. Validate official Mamba kernels before efficiency comparisons.
+
+Measure median/p95 latency after warm-up with CUDA synchronization, trainable/total parameters and peak allocated memory at matched batches and lengths. For human review, use a documented rubric for tone, fluency, meaning and factual changes, with blinded model identities and more than one reviewer. The current heuristic detector is not a trained academic-style classifier. A supervised detector and Mamba-only generator remain future work.

@@ -1,0 +1,14 @@
+[
+  {
+    "id": "00a677997fbda9ac",
+    "source": "We also leverage the image features to incorporate the style information of words in LayoutLM.",
+    "reference": "We also leverage the image features to incorporate the style information of words into LayoutLM.",
+    "prediction": "We also leverage the image features to incorporate the style information of words in LayoutLM."
+  },
+  {
+    "id": "02c682ee5d635a9b",
+    "source": "We also leverage the image features to incorporate the style information of words in LayoutLM.",
+    "reference": "We also leverage the image features to incorporate the visual information of words in LayoutLM.",
+    "prediction": "We also leverage the image features to incorporate the style information of words in LayoutLM."
+  }
+]

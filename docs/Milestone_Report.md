@@ -1,23 +1,23 @@
 # Academic Text Style Enhancement
 
-Milestone Report
+Milestone report, 26 October 2026.
 
-## 1 Dataset
+## Dataset
 
-We downloaded the author-released IteraTeR-HUMAN sentence dataset [1] at revision e22e0371dac444239b944f9293f5b491d62b73f0 and recorded file checksums. From 4,018 records, we retained 676 arXiv pairs labeled clarity, fluency or style after normalization, deduplication, length filtering and numeric-consistency checks. Seed-42 document-group splitting gives 491 training, 98 validation and 87 test pairs across 76, 9 and 10 documents. Cross-split document and exact-text overlap is zero. A real human edit changes “in a dialogue system” to “in dialogue systems”.
+The project uses the author-released IteraTeR-HUMAN sentence data at revision e22e0371dac444239b944f9293f5b491d62b73f0. Cleaning retains 676 arXiv revision pairs from 4,018 records. Document-group splitting with seed 42 gives 491 training, 98 validation and 87 test pairs across 76, 9 and 10 documents. Cross-split document and exact-text overlap is zero. Only 24 retained pairs carry a style label, limiting direct academic-tone supervision. See Dataset_Card.md.
 
-## 2 Models
+## Model
 
-The rewriter combines a BART Transformer encoder, a Mamba reference adapter, gated or residual fusion, and a Transformer decoder. We also implement replacement fusion as a skip-path ablation. Training uses target-token cross-entropy with padding ignored. Our sequential PyTorch selective-state implementation follows the Mamba-1 structure [2]; official optimized-kernel parity is unverified. The current detector uses transparent heuristics. A supervised detector and Mamba-only baseline remain planned.
+A pretrained BART encoder produces contextual source states. A normalized Mamba reference adapter refines them, and gated fusion adds a learned adapter contribution before the BART decoder generates the revision. Residual and replacement fusion are available for ablations. Training uses target-token cross-entropy with ignored padding labels. The detector remains a transparent heuristic, and the author reviews generated suggestions. The sequential PyTorch Mamba reference has not been validated against optimized official kernels.
 
-## 3 Current Progress
+## Current results
 
-Cleaning, document-level splitting, train-only tokenization, batching, model training, generation and checkpoint reload are implemented. Four integrity tests passed. On an RTX 4060 Laptop GPU, both randomly initialized tiny BART models completed 30 updates on 64 real training pairs with 16 validation pairs. Fixed-batch training cross-entropy decreased from 7.778 to 6.571 for Transformer and 7.778 to 6.570 for Hybrid. Validation cross-entropy was 6.841 and 6.840 respectively. These are pipeline smoke checks, not evidence of improved rewriting quality. Test data have not been used for model evaluation.
+Pretrained runs now complete 300 updates on all 491 training pairs and evaluate 98 validation pairs. Validation token CE is 1.2312 for BART, 1.1379 for the frozen hybrid and 1.0795 for the fully trainable hybrid. The frozen hybrid trains 4.92 million parameters, compared with 139.42 million for BART. Learning rates and trainable capacity differ, so these single-seed measurements do not isolate architectural benefits.
 
-## 4 Problems
+The same 87 test examples yield whitespace ROUGE-L F1 of 0.7580 for BART and 0.7566 for the frozen hybrid. Their test CE values are 0.8213 and 0.7802. Both copy the source exactly in 24 cases. The number multiset check passes in 87 baseline cases and 85 hybrid cases, including cases without numbers. These diagnostics do not establish better tone or semantic equivalence. Predictions and numerical results are retained beside the checkpoints.
 
-Only 24 retained pairs carry a style label, limiting direct supervision for academic tone. Numeric checks cannot certify meaning preservation. Human review, pretrained fine-tuning and official Mamba integration remain incomplete. Saved tiny-model validation generations are empty and unsuitable for practical writing. The reference scan does not establish an efficiency advantage.
+## Problems and next work
 
-## 5 Next Plan
+Reference overlap can remain high when the output misses the substantive human edit. Independent tone and meaning labels are still needed. The test predictions have now been inspected, so confirmatory work needs new held-out examples or a revised protocol. Matched multi-seed experiments, parameter controls, validation-based best-checkpoint saving and official Mamba validation remain priorities. Current weights represent the final training step.
 
-During milestone week, audit 50 pairs and prepare independent detector labels. Suggested team targets are a pretrained BART baseline for Nov 1–7, Hybrid integration and fusion ablations for Nov 8–14, and blind review plus efficiency analysis for Nov 15–21. Use matched splits and decoding, validation-based checkpoint selection, and a frozen protocol before final test evaluation. Assess reference overlap, semantic preservation, academic tone and resource use. Local source, README and experiment logs are ready for version control; remote GitHub publication is pending.
+The repository includes reproducible source, tests, data, complete retained checkpoints and English reporting materials. Sources and measured values are documented in Progress_Evidence.md, Architecture_and_Protocol.md and Learning_Rate_Analysis.md. Third-party attribution remains in ../THIRD_PARTY_NOTICES.md and the original data license.

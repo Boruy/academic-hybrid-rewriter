@@ -1,0 +1,108 @@
+{
+  "protocol": "same data, initialization, seed, random batches, 300-step reference budget; constant LR; final validation CE selection",
+  "reference_checkpoint": "P:\\MLProject\\runs\\bart_hybrid_unfrozen",
+  "runs": [
+    {
+      "checkpoint": "P:\\MLProject\\runs\\bart_hybrid_unfrozen",
+      "learning_rate": 2e-05,
+      "validation_cross_entropy": 1.0794750574544378,
+      "fixed_train_batch_loss_after": 0.1407555788755417,
+      "loss_statistics": {
+        "steps": 300,
+        "mean": 0.6855871853232384,
+        "std": 0.5769472680677613,
+        "min": 0.08668538928031921,
+        "max": 3.377009153366089,
+        "first_50_mean": 0.8407189992070198,
+        "last_50_mean": 0.5857681635022164,
+        "mean_absolute_step_change": 0.5711823297184845,
+        "steps_over_2": 15
+      },
+      "test_set_used": false
+    },
+    {
+      "checkpoint": "P:\\MLProject\\runs\\lr_tuning_offline\\hybrid_lr_1em05",
+      "learning_rate": 1e-05,
+      "validation_cross_entropy": 1.0886600842483494,
+      "fixed_train_batch_loss_after": 0.1799834668636322,
+      "loss_statistics": {
+        "steps": 300,
+        "mean": 0.7125555342187484,
+        "std": 0.5761525062065855,
+        "min": 0.09860629588365555,
+        "max": 3.2381749153137207,
+        "first_50_mean": 0.8808906373381614,
+        "last_50_mean": 0.6183012756705284,
+        "mean_absolute_step_change": 0.5739934961233649,
+        "steps_over_2": 17
+      },
+      "test_set_used": false
+    },
+    {
+      "checkpoint": "P:\\MLProject\\runs\\lr_tuning_offline\\hybrid_lr_5em06",
+      "learning_rate": 5e-06,
+      "validation_cross_entropy": 1.1078417133157674,
+      "fixed_train_batch_loss_after": 0.2431245595216751,
+      "loss_statistics": {
+        "steps": 300,
+        "mean": 0.7571475652356943,
+        "std": 0.586448511225743,
+        "min": 0.12676502764225006,
+        "max": 3.3070156574249268,
+        "first_50_mean": 0.9407430809736251,
+        "last_50_mean": 0.6649428018927575,
+        "mean_absolute_step_change": 0.5914705867153346,
+        "steps_over_2": 17
+      },
+      "test_set_used": false
+    }
+  ],
+  "recommended_learning_rate": 2e-05,
+  "selected_checkpoint": "P:\\MLProject\\runs\\bart_hybrid_unfrozen",
+  "limitation": "Single seed and fixed training budget; raw mini-batch loss variance is not the selection criterion.",
+  "test_set_used": false,
+  "adaptive_trial": {
+    "checkpoint": "runs\\bart_hybrid_lr_adjusted_patience0",
+    "learning_rate": 2e-05,
+    "final_learning_rate": 5e-06,
+    "last_applied_learning_rate": 1e-05,
+    "lr_scheduler": "plateau",
+    "validation_cross_entropy": 1.079940839783721,
+    "fixed_train_batch_loss_after": 0.1422276496887207,
+    "loss_statistics": {
+      "steps": 300,
+      "mean": 0.6857107591380676,
+      "std": 0.5762498809675637,
+      "min": 0.08668508380651474,
+      "max": 3.377009153366089,
+      "first_50_mean": 0.8407190245389938,
+      "last_50_mean": 0.5865095461905002,
+      "mean_absolute_step_change": 0.56995926707684,
+      "steps_over_2": 15
+    },
+    "test_set_used": false
+  },
+  "patience1_diagnostic_trial": {
+    "checkpoint": "runs\\bart_hybrid_lr_adjusted",
+    "learning_rate": 2e-05,
+    "final_learning_rate": 1e-05,
+    "last_applied_learning_rate": 2e-05,
+    "lr_scheduler": "plateau",
+    "validation_cross_entropy": 1.0794751290242275,
+    "fixed_train_batch_loss_after": 0.14075617492198944,
+    "loss_statistics": {
+      "steps": 300,
+      "mean": 0.6855872100840013,
+      "std": 0.5769472503503235,
+      "min": 0.08668527752161026,
+      "max": 3.377009153366089,
+      "first_50_mean": 0.8407190099358559,
+      "last_50_mean": 0.5857684515416622,
+      "mean_absolute_step_change": 0.5711822231178698,
+      "steps_over_2": 15
+    },
+    "test_set_used": false
+  },
+  "recommended_scheduler": "constant",
+  "recommended_lr_patience": 0
+}

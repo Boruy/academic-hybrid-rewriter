@@ -4,7 +4,7 @@ Prepared 2026-10-24. Source: https://huggingface.co/datasets/wanyu/IteraTeR_huma
 
 ## Provenance
 
-Revision: e22e0371dac444239b944f9293f5b491d62b73f0. Full file hashes and byte counts are in data/raw/manifest.json. The card lists Apache-2.0; source text originates from several domains and attribution should remain attached. Raw and processed corpora stay outside Git. The downloadable human sentence release contains 3,254 train, 400 dev and 364 test records (4,018 total), not the much larger FULL or v2 releases.
+Revision: e22e0371dac444239b944f9293f5b491d62b73f0. Full file hashes and byte counts are in data/raw/manifest.json. The card lists Apache-2.0; source text originates from several domains and attribution should remain attached. Raw and processed corpora are included with their source manifests and license. The downloadable human sentence release contains 3,254 train, 400 dev and 364 test records (4,018 total), not the much larger FULL or v2 releases.
 
 ## Selection
 
@@ -39,6 +39,6 @@ Intent: style. arXiv document 2012.08987. Upstream train.json, line 778. This is
 
 ## Intended use and limits
 
-This is a small pilot for scientific sentence revision. Only 24 pairs carry a style label, so most supervision concerns clarity or fluency. Number preservation cannot catch changed negation, hedging, entities or citation meaning. Data include imperfect edits and LaTeX artifacts. Manual review is pending. No synthetic training pairs have been added. The test split remains held out from model evaluation; counts and leakage checks inspect metadata/text only.
+This is a small pilot for scientific sentence revision. Only 24 pairs carry a style label, so most supervision concerns clarity or fluency. Number preservation cannot catch changed negation, hedging, entities or citation meaning. Data include imperfect edits and LaTeX artifacts. Manual review is pending. No synthetic training pairs have been added. The 87-pair test split has now been evaluated and inspected for the BART baseline and frozen hybrid. It remains separate from training and validation, but it can no longer serve as an unseen confirmatory set.
 
 The tiny tokenizer learns its vocabulary on training text only. Source and target each receive BOS/EOS tokens. Dynamic right padding uses attention masks. Target padding becomes -100 for cross-entropy. Current smoke samples have zero truncation at 128 tokens. This word-level tokenizer is for pipeline verification; use the pretrained BART tokenizer for the main experiments.

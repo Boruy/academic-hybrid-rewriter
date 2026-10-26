@@ -1,0 +1,17 @@
+{
+  "n": 87,
+  "whitespace_rouge_l_f1": 0.756592215982457,
+  "number_multiset_preservation_rate": 0.9770114942528736,
+  "copy_rate": 0.27586206896551724,
+  "warning": "ROUGE is a whitespace diagnostic. Number preservation is not semantic equivalence. Use independent human labels for academic tone.",
+  "sacrebleu": null,
+  "checkpoint": "P:\\MLProject\\runs\\bart_adapter_visible",
+  "split": "test",
+  "device": "cuda",
+  "cross_entropy": 0.7802188520499558,
+  "max_length": 128,
+  "max_new_tokens": 48,
+  "num_beams": 1,
+  "do_sample": false,
+  "test_set_used": true
+}

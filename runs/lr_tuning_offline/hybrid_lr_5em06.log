@@ -1,0 +1,89 @@
+D:\conda\envs\tee\Lib\site-packages\transformers\tokenization_utils_base.py:1601: FutureWarning: `clean_up_tokenization_spaces` was not set. It will be set to `True` by default. This behavior will be depracted in transformers v4.45, and will be then set to `False` by default. For more details check this issue: https://github.com/huggingface/transformers/issues/31884
+  warnings.warn(
+Some non-default generation parameters are set in the model config. These should go into a GenerationConfig file (https://huggingface.co/docs/transformers/generation_strategies#save-a-custom-decoding-strategy-with-your-model) instead. This warning will be raised to an exception in v4.41.
+Non-default generation parameters: {'early_stopping': True, 'num_beams': 4, 'no_repeat_ngram_size': 3, 'forced_bos_token_id': 0, 'forced_eos_token_id': 2}
+D:\conda\envs\tee\Lib\site-packages\transformers\models\bart\modeling_bart.py:496: UserWarning: 1Torch was not compiled with flash attention. (Triggered internally at ..\aten\src\ATen\native\transformers\cuda\sdp_utils.cpp:263.)
+  attn_output = torch.nn.functional.scaled_dot_product_attention(
+Training hybrid on cuda: 491 training pairs, 98 validation pairs, 300 steps
+Initial fixed-batch loss: 0.5177
+[validation 0/300] loss=1.4582 fixed_train_loss=0.5177 lr=5.00e-06 next_lr=5.00e-06
+[train 1/300] loss=1.4460 ma20=1.4460 lr=5.00e-06 elapsed=2.5s
+[train 25/300] loss=2.5544 ma20=1.0147 lr=5.00e-06 elapsed=8.6s
+[train 50/300] loss=0.2579 ma20=0.8068 lr=5.00e-06 elapsed=14.7s
+[validation 50/300] loss=1.2654 fixed_train_loss=0.3655 lr=5.00e-06 next_lr=5.00e-06
+[train 75/300] loss=0.3596 ma20=0.6516 lr=5.00e-06 elapsed=23.5s
+[train 100/300] loss=0.7171 ma20=0.8124 lr=5.00e-06 elapsed=30.2s
+[validation 100/300] loss=1.1365 fixed_train_loss=0.3050 lr=5.00e-06 next_lr=5.00e-06
+[train 125/300] loss=1.2138 ma20=0.7309 lr=5.00e-06 elapsed=39.2s
+[train 150/300] loss=0.8231 ma20=0.7506 lr=5.00e-06 elapsed=45.4s
+[validation 150/300] loss=1.0991 fixed_train_loss=0.2578 lr=5.00e-06 next_lr=5.00e-06
+[train 175/300] loss=0.2285 ma20=0.6697 lr=5.00e-06 elapsed=53.5s
+[train 200/300] loss=0.3163 ma20=0.5957 lr=5.00e-06 elapsed=59.7s
+[validation 200/300] loss=1.1240 fixed_train_loss=0.2596 lr=5.00e-06 next_lr=5.00e-06
+[train 225/300] loss=0.5524 ma20=0.8896 lr=5.00e-06 elapsed=68.3s
+[train 250/300] loss=0.8389 ma20=0.7689 lr=5.00e-06 elapsed=74.5s
+[validation 250/300] loss=1.1208 fixed_train_loss=0.2536 lr=5.00e-06 next_lr=5.00e-06
+[train 275/300] loss=0.7340 ma20=0.6552 lr=5.00e-06 elapsed=82.8s
+[train 300/300] loss=0.6273 ma20=0.6588 lr=5.00e-06 elapsed=89.1s
+[validation 300/300] loss=1.1078 fixed_train_loss=0.2431 lr=5.00e-06 next_lr=5.00e-06
+Computing validation loss...
+Validation cross-entropy: 1.1078
+D:\conda\envs\tee\Lib\site-packages\transformers\generation\configuration_utils.py:615: UserWarning: `num_beams` is set to 1. However, `early_stopping` is set to `True` -- this flag is only used in beam-based generation modes. You should set `num_beams>1` or unset `early_stopping`.
+  warnings.warn(
+{
+  "model": "hybrid",
+  "initialization": "facebook/bart-base",
+  "backend": "reference",
+  "fusion": "gated",
+  "seed": 42,
+  "steps": 300,
+  "train_pairs": 491,
+  "validation_pairs": 98,
+  "max_length": 128,
+  "batch_size": 2,
+  "learning_rate": 5e-06,
+  "fixed_train_batch_loss_before": 0.5176745057106018,
+  "fixed_train_batch_loss_after": 0.2431245595216751,
+  "validation_cross_entropy": 1.1078417133157674,
+  "seconds_training": 76.58230200000071,
+  "peak_cuda_allocated_mib": 2786.5205078125,
+  "parameters": 144336384,
+  "trainable_parameters": 144336384,
+  "train_truncated_sources": 3,
+  "train_truncated_targets": 0,
+  "device": "cuda",
+  "gpu": "NVIDIA GeForce RTX 4060 Laptop GPU",
+  "torch": "2.2.0+cu121",
+  "experiment_type": "fine-tuning",
+  "test_set_used": false,
+  "args": {
+    "model": "hybrid",
+    "tiny": false,
+    "pretrained": "facebook/bart-base",
+    "backend": "reference",
+    "fusion": "gated",
+    "freeze_backbone": false,
+    "data": "data/processed",
+    "output": "P:\\MLProject\\runs\\lr_tuning_offline\\hybrid_lr_5em06",
+    "steps": 300,
+    "train_limit": 0,
+    "val_limit": 0,
+    "batch_size": 2,
+    "max_length": 128,
+    "lr": 5e-06,
+    "seed": 42,
+    "device": null,
+    "log_every": 25,
+    "eval_every": 50,
+    "lr_scheduler": "constant",
+    "lr_drop_factor": 0.5,
+    "lr_patience": 1,
+    "min_lr": 1e-06,
+    "local_files_only": true
+  },
+  "final_learning_rate": 5e-06,
+  "lr_scheduler": "constant",
+  "best_recorded_validation_cross_entropy": 1.099139206685824,
+  "seconds_validation": 14.591010899997855
+}
+Training complete. Results: P:\MLProject\runs\lr_tuning_offline\hybrid_lr_5em06
