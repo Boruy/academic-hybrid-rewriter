@@ -2,11 +2,14 @@
 
 A BART + Mamba prototype for academic sentence revision. Current evidence includes real revision data, pretrained training, saved checkpoints and an inspected test comparison. It does not yet establish better academic tone or meaning preservation.
 
+The next-stage task is **Academic Style Enhancement with Meaning Preservation**, scoped to academic sentence refinement. The architecture is retained. The [new interactive data audit](output/academic-refinement/index.html) presents 100 preliminary existing-pair judgments, a pinned arXivEdits candidate pool and the four-arm specialization protocol. Of 199 screened new candidates, 21 development pairs are AI-shortlisted; **zero are independently human-verified**. Real specialization training and improved-output evidence remain pending. See the [protocol, curation packets and training commands](docs/Academic_Refinement_Protocol.md).
+
 ## Presentation and results
 
 ![Stage-two recorded experiment overview](output/stage-two/overview.png)
 
 - **[Stage-two interactive visual report](output/stage-two/index.html)**: download and open locally; compare all three models across all 87 test examples and both output budgets, search/filter cases and inspect token edits
+- **[Academic refinement data-quality explorer](output/academic-refinement/index.html)**: inspect all 100 preliminary audit decisions, source/target differences, frozen new partitions and the actual readiness of the next experiment
 - [Stage-two figure gallery and rebuild instructions](docs/Stage_Two_Visualization.md), with PNG/SVG exports and source fingerprints
 - [Original five-minute English presentation (snapshot)](output/presentation-5min-en/Academic_Text_Style_Enhancement_5min_EN.pptx)
 - [Timed English speaker script](output/presentation-5min-en/English_Speaker_Script_5min.md), also embedded in the slide notes
@@ -87,7 +90,7 @@ Use new output directories to preserve the recorded experiments:
 .\.venv\Scripts\python.exe -m academic_rewriter.demo --checkpoint runs/bart_adapter_visible --text 'We looked at a lot of samples.' --force
 ~~~
 
-Use --eval-every 50 for validation histories and --lr-scheduler plateau for optional validation-driven scheduling. The runner saves final-step weights, not a selected best checkpoint. --local-files-only requires the pretrained model in the local Hugging Face cache.
+Use --eval-every 50 for validation histories and --lr-scheduler plateau for optional validation-driven scheduling. The runner defaults to final-step weights; --checkpoint-selection best-validation saves and restores the actual best validation checkpoint, including step zero. --init-checkpoint initializes a matching model from local weights with a fresh optimizer. --sampling shuffle-epochs, --early-stopping-patience and --reject-truncation support the next-stage protocol. Existing weights require explicit --overwrite to replace. --local-files-only requires the pretrained model in the local Hugging Face cache.
 
 Learning-rate comparisons use scripts/tune_learning_rate.py. Regenerate their English report and figures with scripts/report_learning_rate.py. Install the optional plotting dependency with python -m pip install -e '.[analysis]' first.
 

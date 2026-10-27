@@ -1,0 +1,40 @@
+{
+  "task": "Academic Style Enhancement with Meaning Preservation",
+  "data": ".cache/academic-refinement/approved-v1",
+  "output": "runs/refinement-v1",
+  "evaluation_status": "planned_not_trained",
+  "common": {
+    "pretrained": "facebook/bart-base",
+    "backend": "reference",
+    "fusion": "gated",
+    "steps": 300,
+    "train_limit": 0,
+    "val_limit": 0,
+    "batch_size": 2,
+    "max_length": 256,
+    "lr": 0.00002,
+    "seed": 42,
+    "eval_every": 25,
+    "log_every": 25,
+    "checkpoint_selection": "best-validation",
+    "early_stopping_patience": 4,
+    "sampling": "shuffle-epochs",
+    "reject_truncation": true,
+    "local_files_only": true
+  },
+  "arms": [
+    {"name": "bart_direct", "model": "transformer"},
+    {"name": "hybrid_direct", "model": "hybrid"},
+    {"name": "bart_two_stage", "model": "transformer", "init_checkpoint": "runs/bart_baseline"},
+    {"name": "hybrid_two_stage", "model": "hybrid", "init_checkpoint": "runs/bart_hybrid_unfrozen"}
+  ],
+  "notes": [
+    "Keep token cross-entropy; all four arms use the same approved target data, seed, stage-two LR, maximum update budget, stopping rule and decoding conditions.",
+    "Continuation initializes weights/config/tokenizer and starts a new optimizer; it is not an optimizer-state resume.",
+    "Best validation includes step zero; harmful specialization may select the unchanged parent.",
+    "The existing stage-one BART and hybrid were trained with different learning rates. Two-stage differences do not isolate architecture alone.",
+    "300 is a maximum budget, not a completed training result. Early stopping can produce different actual update counts.",
+    "Do not evaluate the frozen test set until the protocol, data curation and model selection are finalized. Synthetic pairs are train-only.",
+    "Independent source-suitable controls are required to measure unnecessary edits. New human results remain unavailable."
+  ]
+}

@@ -1,0 +1,23 @@
+{
+  "task": "Academic Style Enhancement with Meaning Preservation",
+  "repository": "https://github.com/chaojiang06/arXivEdits",
+  "revision": "113913d68522c1c8428d8e191d5c9bed633da6ce",
+  "upstream_pairs": 1000,
+  "upstream_documents": 363,
+  "previous_document_overlap": 0,
+  "intention_only_candidates": 271,
+  "screened_candidates": 199,
+  "candidates_by_partition": {
+    "train": 118,
+    "validation": 43,
+    "test": 38
+  },
+  "human_verified_pairs": 0,
+  "target_reviewed_pairs": [
+    200,
+    500
+  ],
+  "test_status": "Frozen and quarantined; no model evaluation or public text preview. Human curation is still required.",
+  "text_storage": "Ignored local cache only. Mixed version-specific paper licenses; references are not a blanket redistribution license.",
+  "filter_note": "Numeric/hedge/acronym/placeholder guards are conservative screens, not semantic verification."
+}

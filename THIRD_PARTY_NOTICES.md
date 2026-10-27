@@ -17,3 +17,9 @@ Raw and processed data, experiment records and fine-tuned checkpoint binaries ar
 BERTScore (MIT): https://github.com/Tiiiger/bert_score. SacreBLEU (Apache-2.0): https://github.com/mjpost/sacrebleu. Exact package versions are recorded in the assessment summary.
 
 The public distilbert/distilroberta-base and cross-encoder/nli-deberta-v3-small model cards declare Apache-2.0. Evaluation model IDs, pinned revisions and file hashes are recorded in output/multidimensional/summary.json; weights remain in the ignored local cache rather than being redistributed here. Preserve model-card/license terms when downloading or redistributing these dependencies.
+
+## arXivEdits candidate preparation
+
+Chao Jiang, Wei Xu and Samuel Stevens, arXivEdits: Understanding the Human Revision Process in Scientific Writing, EMNLP 2022: https://aclanthology.org/2022.emnlp-main.641/. Source repository: https://github.com/chaojiang06/arXivEdits, pinned commit 113913d68522c1c8428d8e191d5c9bed633da6ce.
+
+The new public curation records contain source references, hashes, intentions, partition decisions and paper-version license URLs. Original paper text is downloaded into the ignored local cache, not bundled in these new public records. The upstream collection contains mixed paper-specific licenses; neither its availability on GitHub nor the IteraTeR license grants a blanket license over this separate collection. Preserve the paper-specific metadata and verify applicable terms before redistributing derived text. See docs/Academic_Refinement_Protocol.md.

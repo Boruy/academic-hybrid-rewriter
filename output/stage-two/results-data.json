@@ -15277,10 +15277,10 @@
             "unit": "connected document group"
           },
           "bertscore_source_f1": {
-            "mean": 0.9974849196686142,
+            "mean": 0.9974849237792793,
             "ci95": [
-              0.996793511023647,
-              0.9982339565662337
+              0.9967935093374628,
+              0.9982339618719501
             ],
             "groups": 10,
             "bootstrap_samples": 1000,
@@ -15288,10 +15288,10 @@
             "unit": "connected document group"
           },
           "bertscore_reference_f1": {
-            "mean": 0.979162437477331,
+            "mean": 0.9791624409028854,
             "ci95": [
-              0.9747537197124314,
-              0.983154876065335
+              0.9747537226181577,
+              0.9831548789771634
             ],
             "groups": 10,
             "bootstrap_samples": 1000,
@@ -15486,10 +15486,10 @@
             "unit": "connected document group"
           },
           "bertscore_source_f1": {
-            "mean": 0.9973984429205971,
+            "mean": 0.9973984470312622,
             "ci95": [
-              0.9967878254957507,
-              0.9981320097726403
+              0.996787832760214,
+              0.9981320106892875
             ],
             "groups": 10,
             "bootstrap_samples": 1000,
@@ -15497,10 +15497,10 @@
             "unit": "connected document group"
           },
           "bertscore_reference_f1": {
-            "mean": 0.9791279058346803,
+            "mean": 0.9791279092602346,
             "ci95": [
-              0.9746620044917674,
-              0.9831142771552508
+              0.9746620045794213,
+              0.9831142809293516
             ],
             "groups": 10,
             "bootstrap_samples": 1000,
@@ -15695,10 +15695,10 @@
             "unit": "connected document group"
           },
           "bertscore_source_f1": {
-            "mean": 0.997475349355018,
+            "mean": 0.9974753534656832,
             "ci95": [
-              0.9968330849068506,
-              0.9982385878376107
+              0.9968330849664552,
+              0.9982385888873642
             ],
             "groups": 10,
             "bootstrap_samples": 1000,
@@ -15706,10 +15706,10 @@
             "unit": "connected document group"
           },
           "bertscore_reference_f1": {
-            "mean": 0.9791703100862175,
+            "mean": 0.9791703135117718,
             "ci95": [
-              0.9747522872509182,
-              0.9831282005405824
+              0.9747522901566448,
+              0.9831282034524108
             ],
             "groups": 10,
             "bootstrap_samples": 1000,
@@ -15904,10 +15904,10 @@
             "unit": "connected document group"
           },
           "bertscore_source_f1": {
-            "mean": 0.9999999773913416,
+            "mean": 0.999999980131785,
             "ci95": [
-              0.9999999648716329,
-              0.9999999902818514
+              0.9999999672572913,
+              0.9999999908335281
             ],
             "groups": 10,
             "bootstrap_samples": 1000,
@@ -15915,10 +15915,10 @@
             "unit": "connected document group"
           },
           "bertscore_reference_f1": {
-            "mean": 0.9814532392326443,
+            "mean": 0.9814532371773117,
             "ci95": [
-              0.9768157060499801,
-              0.985567407911409
+              0.9768157012968564,
+              0.9855674068149084
             ],
             "groups": 10,
             "bootstrap_samples": 1000,
@@ -16113,10 +16113,10 @@
             "unit": "connected document group"
           },
           "bertscore_source_f1": {
-            "mean": 0.9814532392326443,
+            "mean": 0.9814532371773117,
             "ci95": [
-              0.9768157060499801,
-              0.985567407911409
+              0.9768157012968564,
+              0.9855674068149084
             ],
             "groups": 10,
             "bootstrap_samples": 1000,
@@ -16124,10 +16124,10 @@
             "unit": "connected document group"
           },
           "bertscore_reference_f1": {
-            "mean": 0.999999980131785,
+            "mean": 0.9999999815020068,
             "ci95": [
-              0.9999999640097106,
-              0.999999995692513
+              0.9999999649917322,
+              0.9999999974206889
             ],
             "groups": 10,
             "bootstrap_samples": 1000,
@@ -16721,10 +16721,10 @@
           "unit": "connected document group"
         },
         "bertscore_source_f1": {
-          "mean": 0.0025150577227274575,
+          "mean": 0.002515056352505739,
           "ci95": [
-            0.0017660192242174436,
-            0.0032064743375664114
+            0.0017660169374375115,
+            0.003206476132122523
           ],
           "groups": 10,
           "bootstrap_samples": 1000,
@@ -16732,10 +16732,10 @@
           "unit": "connected document group"
         },
         "bertscore_reference_f1": {
-          "mean": 0.0022908017553132155,
+          "mean": 0.0022907962744263396,
           "ci95": [
-            0.0017039425293011454,
-            0.0027894524969160556
+            0.0017039407519643494,
+            0.0027894442677497866
           ],
           "groups": 10,
           "bootstrap_samples": 1000,
@@ -16921,10 +16921,10 @@
           "unit": "connected document group"
         },
         "bertscore_source_f1": {
-          "mean": -0.016031680435969912,
+          "mean": -0.016031686601967646,
           "ci95": [
-            -0.021269430598893305,
-            -0.01143551204383858
+            -0.021269432812520903,
+            -0.011435512777387613
           ],
           "groups": 10,
           "bootstrap_samples": 1000,
@@ -16932,10 +16932,10 @@
           "unit": "connected document group"
         },
         "bertscore_reference_f1": {
-          "mean": 0.020837542654454023,
+          "mean": 0.020837540599121445,
           "ci95": [
-            0.01684509811507088,
-            0.025246256618886378
+            0.016845095949010142,
+            0.025246253753433354
           ],
           "groups": 10,
           "bootstrap_samples": 1000,
@@ -17245,7 +17245,7 @@
         "negation_changed": 0.0,
         "hedging_changed": 0.0,
         "citations_changed": 0.0,
-        "bertscore_source_f1": 0.9957586526870728,
+        "bertscore_source_f1": 0.9957587122917175,
         "bertscore_reference_f1": 0.9732235074043274,
         "nli_forward_entailment": 0.9719425561048206,
         "nli_forward_contradiction": 0.006385399670015367,
@@ -17265,7 +17265,7 @@
         "negation_changed": 0.0,
         "hedging_changed": 0.0,
         "citations_changed": 0.0,
-        "bertscore_source_f1": 0.9957586526870728,
+        "bertscore_source_f1": 0.9957587122917175,
         "bertscore_reference_f1": 0.9732235074043274,
         "nli_forward_entailment": 0.9719425288423844,
         "nli_forward_contradiction": 0.006385405580502934,
@@ -17285,7 +17285,7 @@
         "negation_changed": 0.0,
         "hedging_changed": 0.0,
         "citations_changed": 0.0,
-        "bertscore_source_f1": 0.9957586526870728,
+        "bertscore_source_f1": 0.9957587122917175,
         "bertscore_reference_f1": 0.9732235074043274,
         "nli_forward_entailment": 0.9719425561048206,
         "nli_forward_contradiction": 0.006385399670015367,
@@ -17306,7 +17306,7 @@
         "hedging_changed": 0.0,
         "citations_changed": 0.0,
         "bertscore_source_f1": 1.0,
-        "bertscore_reference_f1": 0.9771105051040649,
+        "bertscore_reference_f1": 0.9771104454994202,
         "nli_forward_entailment": 0.9538079466523943,
         "nli_forward_contradiction": 0.010310105676350732,
         "nli_reverse_entailment": 0.9538079466523943,
@@ -17325,7 +17325,7 @@
         "negation_changed": 0.0,
         "hedging_changed": 0.0,
         "citations_changed": 0.0,
-        "bertscore_source_f1": 0.9771105051040649,
+        "bertscore_source_f1": 0.9771104454994202,
         "bertscore_reference_f1": 0.9999998807907104,
         "nli_forward_entailment": 0.4266178536972124,
         "nli_forward_contradiction": 0.003229709685708454,
@@ -17347,7 +17347,7 @@
         "negation_changed": 0.0,
         "hedging_changed": 0.0,
         "citations_changed": 0.0,
-        "bertscore_source_f1": 0.9999999403953552,
+        "bertscore_source_f1": 1.0,
         "bertscore_reference_f1": 0.9794599413871765,
         "nli_forward_entailment": 0.9659525492996326,
         "nli_forward_contradiction": 0.007520177154124188,
@@ -17367,7 +17367,7 @@
         "negation_changed": 0.0,
         "hedging_changed": 0.0,
         "citations_changed": 0.0,
-        "bertscore_source_f1": 0.9999999403953552,
+        "bertscore_source_f1": 1.0,
         "bertscore_reference_f1": 0.9794599413871765,
         "nli_forward_entailment": 0.9659525366719331,
         "nli_forward_contradiction": 0.0075201806417151676,
@@ -17387,7 +17387,7 @@
         "negation_changed": 0.0,
         "hedging_changed": 0.0,
         "citations_changed": 0.0,
-        "bertscore_source_f1": 0.9999999403953552,
+        "bertscore_source_f1": 1.0,
         "bertscore_reference_f1": 0.9794599413871765,
         "nli_forward_entailment": 0.9659525492996326,
         "nli_forward_contradiction": 0.007520177154124188,
@@ -17407,7 +17407,7 @@
         "negation_changed": 0.0,
         "hedging_changed": 0.0,
         "citations_changed": 0.0,
-        "bertscore_source_f1": 0.9999999403953552,
+        "bertscore_source_f1": 1.0,
         "bertscore_reference_f1": 0.9794599413871765,
         "nli_forward_entailment": 0.9659525492996326,
         "nli_forward_contradiction": 0.007520177154124188,
@@ -18368,7 +18368,7 @@
         "hedging_changed": 0.0,
         "citations_changed": 0.0,
         "bertscore_source_f1": 0.9958376884460449,
-        "bertscore_reference_f1": 0.9926590919494629,
+        "bertscore_reference_f1": 0.9926591515541077,
         "nli_forward_entailment": 0.9930053787306884,
         "nli_forward_contradiction": 0.0007951991394133124,
         "nli_reverse_entailment": 0.27445492300966523,
@@ -18388,7 +18388,7 @@
         "hedging_changed": 0.0,
         "citations_changed": 0.0,
         "bertscore_source_f1": 0.9958376884460449,
-        "bertscore_reference_f1": 0.9926590919494629,
+        "bertscore_reference_f1": 0.9926591515541077,
         "nli_forward_entailment": 0.9930053787306884,
         "nli_forward_contradiction": 0.0007951991394133124,
         "nli_reverse_entailment": 0.27445492300966523,
@@ -18408,7 +18408,7 @@
         "hedging_changed": 0.0,
         "citations_changed": 0.0,
         "bertscore_source_f1": 0.9958376884460449,
-        "bertscore_reference_f1": 0.9926590919494629,
+        "bertscore_reference_f1": 0.9926591515541077,
         "nli_forward_entailment": 0.9930053787306884,
         "nli_forward_contradiction": 0.0007951991394133124,
         "nli_reverse_entailment": 0.27445492300966523,
@@ -18428,7 +18428,7 @@
         "hedging_changed": 0.0,
         "citations_changed": 0.0,
         "bertscore_source_f1": 1.0,
-        "bertscore_reference_f1": 0.9968785047531128,
+        "bertscore_reference_f1": 0.9968783855438232,
         "nli_forward_entailment": 0.9886511549029422,
         "nli_forward_contradiction": 0.0012072921811592007,
         "nli_reverse_entailment": 0.9886511549029422,
@@ -18447,8 +18447,8 @@
         "negation_changed": 0.0,
         "hedging_changed": 0.0,
         "citations_changed": 0.0,
-        "bertscore_source_f1": 0.9968785047531128,
-        "bertscore_reference_f1": 1.0000001192092896,
+        "bertscore_source_f1": 0.9968783855438232,
+        "bertscore_reference_f1": 1.0,
         "nli_forward_entailment": 0.9970713962563333,
         "nli_forward_contradiction": 0.00022030638263198098,
         "nli_reverse_entailment": 0.9973153174840057,
@@ -18550,7 +18550,7 @@
         "hedging_changed": 0.0,
         "citations_changed": 0.0,
         "bertscore_source_f1": 0.9661247134208679,
-        "bertscore_reference_f1": 1.0,
+        "bertscore_reference_f1": 1.0000001192092896,
         "nli_forward_entailment": 0.9292971364622108,
         "nli_forward_contradiction": 0.003454515382845193,
         "nli_reverse_entailment": 0.9317642925164874,
@@ -18571,7 +18571,7 @@
         "negation_changed": 0.0,
         "hedging_changed": 0.0,
         "citations_changed": 0.0,
-        "bertscore_source_f1": 0.9999999403953552,
+        "bertscore_source_f1": 1.0,
         "bertscore_reference_f1": 0.9971706867218018,
         "nli_forward_entailment": 0.9928265593117114,
         "nli_forward_contradiction": 0.00077263575814494,
@@ -18591,7 +18591,7 @@
         "negation_changed": 0.0,
         "hedging_changed": 0.0,
         "citations_changed": 0.0,
-        "bertscore_source_f1": 0.9999999403953552,
+        "bertscore_source_f1": 1.0,
         "bertscore_reference_f1": 0.9971706867218018,
         "nli_forward_entailment": 0.9928265593117114,
         "nli_forward_contradiction": 0.00077263575814494,
@@ -18611,7 +18611,7 @@
         "negation_changed": 0.0,
         "hedging_changed": 0.0,
         "citations_changed": 0.0,
-        "bertscore_source_f1": 0.9999999403953552,
+        "bertscore_source_f1": 1.0,
         "bertscore_reference_f1": 0.9971706867218018,
         "nli_forward_entailment": 0.9928265593117114,
         "nli_forward_contradiction": 0.00077263575814494,
@@ -18631,7 +18631,7 @@
         "negation_changed": 0.0,
         "hedging_changed": 0.0,
         "citations_changed": 0.0,
-        "bertscore_source_f1": 0.9999999403953552,
+        "bertscore_source_f1": 1.0,
         "bertscore_reference_f1": 0.9971706867218018,
         "nli_forward_entailment": 0.9928265593117114,
         "nli_forward_contradiction": 0.00077263575814494,
@@ -18775,7 +18775,7 @@
         "negation_changed": 0.0,
         "hedging_changed": 0.0,
         "citations_changed": 0.0,
-        "bertscore_source_f1": 0.9957586526870728,
+        "bertscore_source_f1": 0.9957587122917175,
         "bertscore_reference_f1": 0.9701734185218811,
         "nli_forward_entailment": 0.9719425743544875,
         "nli_forward_contradiction": 0.006385395222718541,
@@ -18795,7 +18795,7 @@
         "negation_changed": 0.0,
         "hedging_changed": 0.0,
         "citations_changed": 0.0,
-        "bertscore_source_f1": 0.9957586526870728,
+        "bertscore_source_f1": 0.9957587122917175,
         "bertscore_reference_f1": 0.9701734185218811,
         "nli_forward_entailment": 0.9719425743544875,
         "nli_forward_contradiction": 0.006385395222718541,
@@ -18815,7 +18815,7 @@
         "negation_changed": 0.0,
         "hedging_changed": 0.0,
         "citations_changed": 0.0,
-        "bertscore_source_f1": 0.9957586526870728,
+        "bertscore_source_f1": 0.9957587122917175,
         "bertscore_reference_f1": 0.9701734185218811,
         "nli_forward_entailment": 0.9719425561048206,
         "nli_forward_contradiction": 0.006385399670015367,
@@ -18836,7 +18836,7 @@
         "hedging_changed": 0.0,
         "citations_changed": 0.0,
         "bertscore_source_f1": 1.0,
-        "bertscore_reference_f1": 0.973638117313385,
+        "bertscore_reference_f1": 0.9736380577087402,
         "nli_forward_entailment": 0.9538079466523943,
         "nli_forward_contradiction": 0.010310105676350732,
         "nli_reverse_entailment": 0.9538079466523943,
@@ -18855,7 +18855,7 @@
         "negation_changed": 0.0,
         "hedging_changed": 0.0,
         "citations_changed": 0.0,
-        "bertscore_source_f1": 0.973638117313385,
+        "bertscore_source_f1": 0.9736380577087402,
         "bertscore_reference_f1": 1.0,
         "nli_forward_entailment": 0.9947399278283926,
         "nli_forward_contradiction": 0.0006678895950249402,
@@ -20203,7 +20203,7 @@
         "negation_changed": 0.0,
         "hedging_changed": 0.0,
         "citations_changed": 0.0,
-        "bertscore_source_f1": 0.9999999403953552,
+        "bertscore_source_f1": 1.0,
         "bertscore_reference_f1": 0.9565680027008057,
         "nli_forward_entailment": 0.9659525492996326,
         "nli_forward_contradiction": 0.007520177154124188,
@@ -20223,7 +20223,7 @@
         "negation_changed": 0.0,
         "hedging_changed": 0.0,
         "citations_changed": 0.0,
-        "bertscore_source_f1": 0.9999999403953552,
+        "bertscore_source_f1": 1.0,
         "bertscore_reference_f1": 0.9565680027008057,
         "nli_forward_entailment": 0.9659525492996326,
         "nli_forward_contradiction": 0.007520177154124188,
@@ -20243,7 +20243,7 @@
         "negation_changed": 0.0,
         "hedging_changed": 0.0,
         "citations_changed": 0.0,
-        "bertscore_source_f1": 0.9999999403953552,
+        "bertscore_source_f1": 1.0,
         "bertscore_reference_f1": 0.9565680027008057,
         "nli_forward_entailment": 0.9659525414584685,
         "nli_forward_contradiction": 0.007520178886028957,
@@ -20263,7 +20263,7 @@
         "negation_changed": 0.0,
         "hedging_changed": 0.0,
         "citations_changed": 0.0,
-        "bertscore_source_f1": 0.9999999403953552,
+        "bertscore_source_f1": 1.0,
         "bertscore_reference_f1": 0.9565680027008057,
         "nli_forward_entailment": 0.9659525492996326,
         "nli_forward_contradiction": 0.007520177154124188,
@@ -20978,7 +20978,7 @@
         "hedging_changed": 0.0,
         "citations_changed": 0.0,
         "bertscore_source_f1": 1.0,
-        "bertscore_reference_f1": 0.9976992011070251,
+        "bertscore_reference_f1": 0.9976991415023804,
         "nli_forward_entailment": 0.8633093276943934,
         "nli_forward_contradiction": 0.04295597789239432,
         "nli_reverse_entailment": 0.8633093276943934,
@@ -20997,7 +20997,7 @@
         "negation_changed": 0.0,
         "hedging_changed": 0.0,
         "citations_changed": 0.0,
-        "bertscore_source_f1": 0.9976992011070251,
+        "bertscore_source_f1": 0.9976991415023804,
         "bertscore_reference_f1": 0.9999999403953552,
         "nli_forward_entailment": 0.859256389732133,
         "nli_forward_contradiction": 0.06608181575404246,
@@ -21100,7 +21100,7 @@
         "hedging_changed": 0.0,
         "citations_changed": 0.0,
         "bertscore_source_f1": 0.9567896723747253,
-        "bertscore_reference_f1": 0.9999999403953552,
+        "bertscore_reference_f1": 1.0,
         "nli_forward_entailment": 0.0022172097525142683,
         "nli_forward_contradiction": 0.00012988004501783817,
         "nli_reverse_entailment": 0.12957202568821272,
@@ -21529,8 +21529,8 @@
         "negation_changed": 0.0,
         "hedging_changed": 0.0,
         "citations_changed": 0.0,
-        "bertscore_source_f1": 0.9958279728889465,
-        "bertscore_reference_f1": 0.981586754322052,
+        "bertscore_source_f1": 0.9958279132843018,
+        "bertscore_reference_f1": 0.9815868139266968,
         "nli_forward_entailment": 0.9579845149248186,
         "nli_forward_contradiction": 0.009807444883793348,
         "nli_reverse_entailment": 0.40625712949899856,
@@ -21549,8 +21549,8 @@
         "negation_changed": 0.0,
         "hedging_changed": 0.0,
         "citations_changed": 0.0,
-        "bertscore_source_f1": 0.9958279728889465,
-        "bertscore_reference_f1": 0.981586754322052,
+        "bertscore_source_f1": 0.9958279132843018,
+        "bertscore_reference_f1": 0.9815868139266968,
         "nli_forward_entailment": 0.9579845149248186,
         "nli_forward_contradiction": 0.009807444883793348,
         "nli_reverse_entailment": 0.40625712949899856,
@@ -21569,8 +21569,8 @@
         "negation_changed": 0.0,
         "hedging_changed": 0.0,
         "citations_changed": 0.0,
-        "bertscore_source_f1": 0.9958279728889465,
-        "bertscore_reference_f1": 0.981586754322052,
+        "bertscore_source_f1": 0.9958279132843018,
+        "bertscore_reference_f1": 0.9815868139266968,
         "nli_forward_entailment": 0.9579845149248186,
         "nli_forward_contradiction": 0.009807444883793348,
         "nli_reverse_entailment": 0.40625712949899856,
@@ -22855,7 +22855,7 @@
         "negation_changed": 0.0,
         "hedging_changed": 0.0,
         "citations_changed": 0.0,
-        "bertscore_source_f1": 0.9983555674552917,
+        "bertscore_source_f1": 0.9983556270599365,
         "bertscore_reference_f1": 0.9924794435501099,
         "nli_forward_entailment": 0.9376050410233937,
         "nli_forward_contradiction": 0.01414767304225067,
@@ -22875,7 +22875,7 @@
         "negation_changed": 0.0,
         "hedging_changed": 0.0,
         "citations_changed": 0.0,
-        "bertscore_source_f1": 0.9983555674552917,
+        "bertscore_source_f1": 0.9983556270599365,
         "bertscore_reference_f1": 0.9924794435501099,
         "nli_forward_entailment": 0.9376050410233937,
         "nli_forward_contradiction": 0.01414767304225067,
@@ -22895,7 +22895,7 @@
         "negation_changed": 0.0,
         "hedging_changed": 0.0,
         "citations_changed": 0.0,
-        "bertscore_source_f1": 0.9983555674552917,
+        "bertscore_source_f1": 0.9983556270599365,
         "bertscore_reference_f1": 0.9924794435501099,
         "nli_forward_entailment": 0.9376049896917864,
         "nli_forward_contradiction": 0.014147692506121797,
@@ -22916,7 +22916,7 @@
         "hedging_changed": 0.0,
         "citations_changed": 0.0,
         "bertscore_source_f1": 0.9999998807907104,
-        "bertscore_reference_f1": 0.9942682385444641,
+        "bertscore_reference_f1": 0.9942682981491089,
         "nli_forward_entailment": 0.9093287721193487,
         "nli_forward_contradiction": 0.022219563391016967,
         "nli_reverse_entailment": 0.9093287721193487,
@@ -22935,7 +22935,7 @@
         "negation_changed": 0.0,
         "hedging_changed": 0.0,
         "citations_changed": 0.0,
-        "bertscore_source_f1": 0.9942682385444641,
+        "bertscore_source_f1": 0.9942682981491089,
         "bertscore_reference_f1": 1.0,
         "nli_forward_entailment": 0.9354181196505857,
         "nli_forward_contradiction": 0.013955397861423129,
@@ -23365,8 +23365,8 @@
         "negation_changed": 0.0,
         "hedging_changed": 0.0,
         "citations_changed": 0.0,
-        "bertscore_source_f1": 0.9999999403953552,
-        "bertscore_reference_f1": 0.9984032511711121,
+        "bertscore_source_f1": 1.0,
+        "bertscore_reference_f1": 0.9984033107757568,
         "nli_forward_entailment": 0.9659525492996326,
         "nli_forward_contradiction": 0.007520177154124188,
         "nli_reverse_entailment": 0.9659525492996326,
@@ -23385,8 +23385,8 @@
         "negation_changed": 0.0,
         "hedging_changed": 0.0,
         "citations_changed": 0.0,
-        "bertscore_source_f1": 0.9999999403953552,
-        "bertscore_reference_f1": 0.9984032511711121,
+        "bertscore_source_f1": 1.0,
+        "bertscore_reference_f1": 0.9984033107757568,
         "nli_forward_entailment": 0.9659525492996326,
         "nli_forward_contradiction": 0.007520177154124188,
         "nli_reverse_entailment": 0.9659525492996326,
@@ -23405,8 +23405,8 @@
         "negation_changed": 0.0,
         "hedging_changed": 0.0,
         "citations_changed": 0.0,
-        "bertscore_source_f1": 0.9999999403953552,
-        "bertscore_reference_f1": 0.9984032511711121,
+        "bertscore_source_f1": 1.0,
+        "bertscore_reference_f1": 0.9984033107757568,
         "nli_forward_entailment": 0.9659525492996326,
         "nli_forward_contradiction": 0.007520177154124188,
         "nli_reverse_entailment": 0.9659525492996326,
@@ -23425,8 +23425,8 @@
         "negation_changed": 0.0,
         "hedging_changed": 0.0,
         "citations_changed": 0.0,
-        "bertscore_source_f1": 0.9999999403953552,
-        "bertscore_reference_f1": 0.9984032511711121,
+        "bertscore_source_f1": 1.0,
+        "bertscore_reference_f1": 0.9984033107757568,
         "nli_forward_entailment": 0.9659525492996326,
         "nli_forward_contradiction": 0.007520177154124188,
         "nli_reverse_entailment": 0.9659525492996326,
@@ -23445,7 +23445,7 @@
         "negation_changed": 0.0,
         "hedging_changed": 0.0,
         "citations_changed": 0.0,
-        "bertscore_source_f1": 0.9984032511711121,
+        "bertscore_source_f1": 0.9984033107757568,
         "bertscore_reference_f1": 0.9999999403953552,
         "nli_forward_entailment": 0.9800649943165115,
         "nli_forward_contradiction": 0.004080302768019979,
@@ -23672,7 +23672,7 @@
         "hedging_changed": 0.0,
         "citations_changed": 0.0,
         "bertscore_source_f1": 0.9964637160301208,
-        "bertscore_reference_f1": 0.992238461971283,
+        "bertscore_reference_f1": 0.9922385811805725,
         "nli_forward_entailment": 0.9702201454142434,
         "nli_forward_contradiction": 0.004208170470191321,
         "nli_reverse_entailment": 0.09497744285931466,
@@ -23692,7 +23692,7 @@
         "hedging_changed": 0.0,
         "citations_changed": 0.0,
         "bertscore_source_f1": 0.9964637160301208,
-        "bertscore_reference_f1": 0.992238461971283,
+        "bertscore_reference_f1": 0.9922385811805725,
         "nli_forward_entailment": 0.9702201454142434,
         "nli_forward_contradiction": 0.004208170470191321,
         "nli_reverse_entailment": 0.09497744285931466,
@@ -23712,7 +23712,7 @@
         "hedging_changed": 0.0,
         "citations_changed": 0.0,
         "bertscore_source_f1": 0.9964637160301208,
-        "bertscore_reference_f1": 0.992238461971283,
+        "bertscore_reference_f1": 0.9922385811805725,
         "nli_forward_entailment": 0.9702201340892068,
         "nli_forward_contradiction": 0.004208171424376967,
         "nli_reverse_entailment": 0.09497651156780326,
@@ -23752,7 +23752,7 @@
         "hedging_changed": 0.0,
         "citations_changed": 0.0,
         "bertscore_source_f1": 0.9955191016197205,
-        "bertscore_reference_f1": 0.9999999403953552,
+        "bertscore_reference_f1": 1.0,
         "nli_forward_entailment": 0.011676159904523718,
         "nli_forward_contradiction": 0.00044430278773030654,
         "nli_reverse_entailment": 0.9495743008324798,
@@ -33674,11 +33674,11 @@
     },
     {
       "path": "output/multidimensional/cases.jsonl",
-      "sha256": "9d2fa956704d2aa6f14b7cff855f9ceb5506649e6cb37c6250937bb47551cc36"
+      "sha256": "86d2f2e4bb6ef71516e34aa69a422b892f35842a737437af301b103210ce73fc"
     },
     {
       "path": "output/multidimensional/summary.json",
-      "sha256": "a2fcb972094730a681f84a0cf73b09bdaca34a53e97c8dfbf798472243de1887"
+      "sha256": "cd6427def68554b0d8fc39a51a46cf260b34d1a6eb122dddb5f73ab3d9cb9aff"
     },
     {
       "path": "runs/bart_adapter_visible/evaluation/test-128/metrics.json",
