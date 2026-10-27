@@ -4,10 +4,15 @@ A BART + Mamba prototype for academic sentence revision. Current evidence includ
 
 ## Presentation and results
 
+![Stage-two recorded experiment overview](output/stage-two/overview.png)
+
+- **[Stage-two interactive visual report](output/stage-two/index.html)**: download and open locally; compare both models across all 87 test examples, search/filter cases and inspect token edits
+- [Stage-two figure gallery and rebuild instructions](docs/Stage_Two_Visualization.md), with PNG/SVG exports and source fingerprints
 - [Five-minute English presentation](output/presentation-5min-en/Academic_Text_Style_Enhancement_5min_EN.pptx)
 - [Timed English speaker script](output/presentation-5min-en/English_Speaker_Script_5min.md), also embedded in the slide notes
 - [Interactive test examples](output/visualizations/test-results.html): open locally in a browser, or download the repository first
-- [Progress evidence](docs/Progress_Evidence.md) and [English milestone report](docs/Milestone_Report.md)
+- [One-page second-submission report](output/second-submission/Second_Submission_Report_EN.pdf) and [editable report text](docs/Milestone_Report.md)
+- [Progress evidence](docs/Progress_Evidence.md)
 - [Architecture and evaluation protocol](docs/Architecture_and_Protocol.md)
 - [Dataset card](docs/Dataset_Card.md) and [learning-rate analysis](docs/Learning_Rate_Analysis.md)
 
@@ -70,6 +75,10 @@ Use new output directories to preserve the recorded experiments:
 Use --eval-every 50 for validation histories and --lr-scheduler plateau for optional validation-driven scheduling. The runner saves final-step weights, not a selected best checkpoint. --local-files-only requires the pretrained model in the local Hugging Face cache.
 
 Learning-rate comparisons use scripts/tune_learning_rate.py. Regenerate their English report and figures with scripts/report_learning_rate.py. Install the optional plotting dependency with python -m pip install -e '.[analysis]' first.
+
+## GitHub synchronization
+
+After each completed change in this project, validate the affected outputs, update the integrity manifest, commit the relevant files and push the current branch to its configured GitHub upstream. This workflow is recorded in [AGENTS.md](AGENTS.md) for future coding sessions. If a push fails, keep the local commit and report that synchronization is pending.
 
 ## Included files and Git LFS
 

@@ -1,23 +1,45 @@
 # Academic Text Style Enhancement
 
-Milestone report, 26 October 2026.
+Second Submission Milestone Report
 
-## Dataset
+27 October 2026
 
-The project uses the author-released IteraTeR-HUMAN sentence data at revision e22e0371dac444239b944f9293f5b491d62b73f0. Cleaning retains 676 arXiv revision pairs from 4,018 records. Document-group splitting with seed 42 gives 491 training, 98 validation and 87 test pairs across 76, 9 and 10 documents. Cross-split document and exact-text overlap is zero. Only 24 retained pairs carry a style label, limiting direct academic-tone supervision. See Dataset_Card.md.
+Borui Ning, Lichen Wang, Haoxiang Ning, Lingfeng Lu
 
-## Model
+GitHub: [https://github.com/Boruy/academic-hybrid-rewriter](https://github.com/Boruy/academic-hybrid-rewriter)
 
-A pretrained BART encoder produces contextual source states. A normalized Mamba reference adapter refines them, and gated fusion adds a learned adapter contribution before the BART decoder generates the revision. Residual and replacement fusion are available for ablations. Training uses target-token cross-entropy with ignored padding labels. The detector remains a transparent heuristic, and the author reviews generated suggestions. The sequential PyTorch Mamba reference has not been validated against optimized official kernels.
+We have completed a reproducible BART + Mamba revision prototype, pretrained pilot runs and an initial test comparison. The pipeline works, but current results do not establish better academic tone or meaning preservation.
 
-## Current results
+## 1 Dataset
 
-Pretrained runs now complete 300 updates on all 491 training pairs and evaluate 98 validation pairs. Validation token CE is 1.2312 for BART, 1.1379 for the frozen hybrid and 1.0795 for the fully trainable hybrid. The frozen hybrid trains 4.92 million parameters, compared with 139.42 million for BART. Learning rates and trainable capacity differ, so these single-seed measurements do not isolate architectural benefits.
+We use the pinned IteraTeR-HUMAN sentence release [1]. Cleaning retains 676 arXiv revision pairs from 4,018 records across 95 documents. Document-group splitting with seed 42 gives 491 training, 98 validation and 87 test pairs. Cross-split document and exact-text overlap is zero, although semantic near duplicates may remain. Only 24 pairs carry a style label.
 
-The same 87 test examples yield whitespace ROUGE-L F1 of 0.7580 for BART and 0.7566 for the frozen hybrid. Their test CE values are 0.8213 and 0.7802. Both copy the source exactly in 24 cases. The number multiset check passes in 87 baseline cases and 85 hybrid cases, including cases without numbers. These diagnostics do not establish better tone or semantic equivalence. Predictions and numerical results are retained beside the checkpoints.
+## 2 Model
 
-## Problems and next work
+The rewriter combines a pretrained BART encoder, a normalized Mamba adapter and a BART decoder. Gated fusion adds a learned adapter contribution to encoder states. Residual and replacement fusion are also implemented. Training minimizes target-token cross-entropy with padding ignored. The detector uses transparent heuristics, and the author reviews suggested revisions. The Mamba module currently uses a sequential PyTorch reference scan.
 
-Reference overlap can remain high when the output misses the substantive human edit. Independent tone and meaning labels are still needed. The test predictions have now been inspected, so confirmatory work needs new held-out examples or a revised protocol. Matched multi-seed experiments, parameter controls, validation-based best-checkpoint saving and official Mamba validation remain priorities. Current weights represent the final training step.
+## 3 Current Progress
 
-The repository includes reproducible source, tests, data, complete retained checkpoints and English reporting materials. Sources and measured values are documented in Progress_Evidence.md, Architecture_and_Protocol.md and Learning_Rate_Analysis.md. Third-party attribution remains in ../THIRD_PARTY_NOTICES.md and the original data license.
+The runs below use facebook/bart-base, 300 updates, batch size 2, seed 42 and a 128-token input limit on an RTX 4060 Laptop GPU. Learning rates are 5e-5, 1e-4 and 2e-5 respectively.
+
+| Model | Trainable params | Validation CE | Test CE | Test ROUGE-L F1 |
+| --- | --- | --- | --- | --- |
+| BART baseline | 139.42M | 1.2312 | 0.8213 | 0.7580 |
+| Frozen hybrid | 4.92M | 1.1379 | 0.7802 | 0.7566 |
+| Full hybrid | 144.34M | 1.0795 | Not evaluated | Not evaluated |
+
+CE denotes token cross-entropy. Test scores use the same 87 pairs, deterministic decoding and at most 48 new tokens. ROUGE-L uses whitespace tokens. Learning rates and trainable capacities differ, so these runs do not isolate the effect of model architecture.
+
+The frozen hybrid preserves detected number multisets in 85/87 cases, versus 87/87 for BART, including sentences without numbers. Both exactly copy the source in 24/87 cases. A separate validation-only learning-rate comparison favors 2e-5 among the tested full-hybrid rates. Five automated tests pass. Nine complete checkpoints, predictions and reproducible code are available in the GitHub repository [2].
+
+## 4 Problems
+
+Academic-tone supervision is limited, and overlap or number checks cannot establish semantic equivalence. The test set has now been inspected. Official Mamba kernel parity and speedups remain unverified. A trained style detector, Mamba-only baseline, fusion ablations, BLEU/BERTScore and independent human review remain pending. The trainer saves final-step weights rather than the best validation checkpoint.
+
+## 5 Next Plan
+
+Audit revision pairs and collect independent tone and meaning labels. Add validation-based checkpoint selection and early stopping. Compare BART and hybrid models with matched optimization budgets, parameter controls and multiple seeds. Validate official Mamba before efficiency testing, then run fusion ablations and blinded human review. Use fresh held-out examples or a revised protocol for confirmatory evaluation.
+
+## Sources
+
+[1] IteraTeR-HUMAN, revision e22e0371; see data/raw/manifest.json. [2] Project code and run records at the GitHub repository above, commit 3b497fb.

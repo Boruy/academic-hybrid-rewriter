@@ -1,3 +1,6 @@
 # Preserve exact bytes for the SHA256 integrity manifest.
 * -text
 runs/**/weights.pt filter=lfs diff=lfs merge=lfs -text
+
+# PDF exports are binary artifacts, even when their streams are ASCII.
+*.pdf binary
