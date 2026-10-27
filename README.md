@@ -17,6 +17,14 @@ A BART + Mamba prototype for academic sentence revision. Current evidence includ
 - [Architecture and evaluation protocol](docs/Architecture_and_Protocol.md)
 - [Dataset card](docs/Dataset_Card.md) and [learning-rate analysis](docs/Learning_Rate_Analysis.md)
 
+## Multidimensional evaluation
+
+[Measured semantic and editing diagnostics](output/multidimensional/README.md) now include source/reference BERTScore, bidirectional NLI, edit rate, SacreBLEU, copy/reference controls and paired document-group confidence intervals for all three models. The [interactive report](output/stage-two/index.html#multidimensional) shows measured values and pending dimensions separately.
+
+Full hybrid source BERTScore is about 0.9975, but average word edit rate is only 0.31%. High preservation alone still hides the copying failure. The independent academic-classifier training/scoring pipeline is implemented; its scores remain unavailable until suitable human labels are supplied. Fluency and successful-rewrite ratings are also pending.
+
+[Blinded reviewer 1](output/human-evaluation/rater_1.html) and [reviewer 2](output/human-evaluation/rater_2.html) packets contain 120 unscored candidates each from 24 already inspected cases. Their private model mapping remains under ignored .cache. This is a diagnostic pilot, not a new confirmatory test. See the [complete protocol and commands](docs/Multidimensional_Evaluation.md) and [human rubric](docs/Human_Evaluation_Rubric.md).
+
 ## Current evidence
 
 The pinned IteraTeR-HUMAN sentence release contains 4,018 records. Cleaning retains 676 arXiv pairs across 95 documents: 491 training, 98 validation and 87 test pairs. Recorded cross-split document and exact-text intersections are zero. Only 24 pairs carry a style label.

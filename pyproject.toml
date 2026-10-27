@@ -11,7 +11,7 @@ dependencies = ["torch>=2.2", "transformers==4.44.2", "tokenizers>=0.19,<0.20", 
 
 [project.optional-dependencies]
 analysis = ["matplotlib>=3.7"]
-evaluation = ["sacrebleu>=2.4", "bert-score>=0.3.13"]
+evaluation = ["sacrebleu==2.5.1", "bert-score==0.3.13", "sentencepiece==0.2.0"]
 official = ["mamba-ssm"]
 
 [tool.setuptools.packages.find]

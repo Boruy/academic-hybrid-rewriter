@@ -1,0 +1,57 @@
+{
+  "status": "pending_ratings",
+  "evaluation_status": "inspected_test_diagnostic",
+  "thresholds": {
+    "required_raters": 2,
+    "minimum_meaning": 4,
+    "minimum_academic": 4,
+    "minimum_fluency": 4,
+    "minimum_improvement": 1,
+    "thresholds_calibrated": false
+  },
+  "raters": 2,
+  "complete_candidates": 0,
+  "expected_candidates": 120,
+  "incomplete_rows": 240,
+  "models": {
+    "bart_baseline": {
+      "label": "BART baseline",
+      "expected": 24,
+      "completed": 0,
+      "successful_rewrite_rate": null
+    },
+    "frozen_hybrid": {
+      "label": "Frozen hybrid",
+      "expected": 24,
+      "completed": 0,
+      "successful_rewrite_rate": null
+    },
+    "full_hybrid": {
+      "label": "Full hybrid",
+      "expected": 24,
+      "completed": 0,
+      "successful_rewrite_rate": null
+    },
+    "copy_source": {
+      "label": "Copy source (control)",
+      "expected": 24,
+      "completed": 0,
+      "successful_rewrite_rate": null
+    },
+    "human_reference": {
+      "label": "Human reference (control)",
+      "expected": 24,
+      "completed": 0,
+      "successful_rewrite_rate": null
+    }
+  },
+  "agreement": {
+    "rater_1_vs_rater_2": {
+      "n_common": 0,
+      "quadratic_weighted_kappa": {},
+      "note": "Null kappa means undefined constant marginals or no shared completed items; it is not perfect agreement."
+    }
+  },
+  "paired_success_differences": {},
+  "note": "Success requires every rater to meet all thresholds, positive academic improvement, no major fact error, and a changed output. Thresholds are experimental; no human scores are imputed. Independent identities are an organizational requirement, not verifiable from files alone."
+}

@@ -1,3 +1,4 @@
+Human review: pending_ratings, 0/1 fully rated candidates
 {
   "seed": 42,
   "raw_counts": {
@@ -57,6 +58,16 @@
 test_cap_hit_excludes_decoder_start_and_batch_padding (test_generation_diagnostics.GenerationDiagnosticsTests.test_cap_hit_excludes_decoder_start_and_batch_padding) ... ok
 test_default_budget_and_historical_override (test_generation_diagnostics.GenerationDiagnosticsTests.test_default_budget_and_historical_override) ... ok
 test_new_default_does_not_overwrite_historical_evidence (test_generation_diagnostics.GenerationDiagnosticsTests.test_new_default_does_not_overwrite_historical_evidence) ... ok
+test_alignment_uses_ids_and_rejects_duplicate_or_wrong_reference (test_multidimensional_evaluation.EvaluationTests.test_alignment_uses_ids_and_rejects_duplicate_or_wrong_reference) ... ok
+test_blank_and_boolean_ratings_are_not_accepted_as_scores (test_multidimensional_evaluation.EvaluationTests.test_blank_and_boolean_ratings_are_not_accepted_as_scores) ... ok
+test_edit_rate_and_protected_flags_do_not_claim_semantic_equivalence (test_multidimensional_evaluation.EvaluationTests.test_edit_rate_and_protected_flags_do_not_claim_semantic_equivalence) ... ok
+test_identity_control_cannot_be_success_despite_maximum_ratings (test_multidimensional_evaluation.EvaluationTests.test_identity_control_cannot_be_success_despite_maximum_ratings) ... ok
+test_long_metric_inputs_fail_instead_of_silent_truncation (test_multidimensional_evaluation.EvaluationTests.test_long_metric_inputs_fail_instead_of_silent_truncation) ... ok
+test_nli_label_order_and_softmax_are_explicit (test_multidimensional_evaluation.EvaluationTests.test_nli_label_order_and_softmax_are_explicit) ... ok
+test_paired_group_bootstrap_and_undefined_agreement (test_multidimensional_evaluation.EvaluationTests.test_paired_group_bootstrap_and_undefined_agreement) ... ok
+test_seen_cases_cannot_be_called_fresh_confirmatory (test_multidimensional_evaluation.EvaluationTests.test_seen_cases_cannot_be_called_fresh_confirmatory) ... ok
+test_style_intents_and_generator_overlap_are_rejected (test_multidimensional_evaluation.EvaluationTests.test_style_intents_and_generator_overlap_are_rejected) ... ok
+test_unfilled_human_packets_have_no_success_rate (test_multidimensional_evaluation.EvaluationTests.test_unfilled_human_packets_have_no_success_rate) ... ok
 test_document_and_text_leakage (test_pipeline.PipelineTests.test_document_and_text_leakage) ... ok
 test_hybrid_loss_generation_and_padding (test_pipeline.PipelineTests.test_hybrid_loss_generation_and_padding) ... D:\conda\envs\tee\Lib\site-packages\transformers\tokenization_utils_base.py:1601: FutureWarning: `clean_up_tokenization_spaces` was not set. It will be set to `True` by default. This behavior will be depracted in transformers v4.45, and will be then set to `False` by default. For more details check this issue: https://github.com/huggingface/transformers/issues/31884
   warnings.warn(
@@ -71,6 +82,6 @@ Non-default generation parameters: {'forced_eos_token_id': 2}
 ok
 
 ----------------------------------------------------------------------
-Ran 8 tests in 3.923s
+Ran 18 tests in 6.415s
 
 OK

@@ -1,0 +1,45 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Independent human academic-style annotation (one JSONL record)",
+  "type": "object",
+  "required": [
+    "text",
+    "academic",
+    "doc_id",
+    "split",
+    "label_source",
+    "guideline_version"
+  ],
+  "properties": {
+    "text": {
+      "type": "string",
+      "minLength": 1
+    },
+    "academic": {
+      "type": "integer",
+      "enum": [
+        0,
+        1
+      ],
+      "description": "Explicit human academic/non-academic judgment; revision intent is not accepted."
+    },
+    "doc_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "split": {
+      "enum": [
+        "train",
+        "validation",
+        "test"
+      ]
+    },
+    "label_source": {
+      "const": "human"
+    },
+    "guideline_version": {
+      "type": "string",
+      "minLength": 1
+    }
+  }
+}

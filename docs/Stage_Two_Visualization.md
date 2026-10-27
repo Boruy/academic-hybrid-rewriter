@@ -40,6 +40,10 @@ The report compares all 87 aligned source/reference pairs and all three model pr
 
 ROUGE-L uses lowercased whitespace tokens, matching academic_rewriter.evaluate. Numeric diagnostics use academic_rewriter.prepare.numbers; copies use stripped exact text. Markup uses case-sensitive whitespace tokens and highlights differences from the source, including deleted tokens that are absent from the output. Enable markup explicitly to inspect edits; it includes deleted source words that are absent from the output. These diagnostics do not establish academic-tone improvement or meaning preservation. Number preservation includes inputs without numbers. The test set has been inspected; confirmatory work needs fresh held-out examples or a revised protocol.
 
+## Multidimensional assessment
+
+The report now includes source/reference BERTScore, both NLI directions, edit rate, copy/reference controls and document-group confidence intervals, with academic style, independent fluency and human success left explicitly pending. See [the protocol](Multidimensional_Evaluation.md). The BERTScore/NLI figure uses the saved 128-token predictions only. Rebuild automatic metrics with academic_rewriter.assess --neural before regenerating the report; stale assessment inputs are rejected.
+
 ## Quality audit
 
 The full hybrid was missing from the original explorer because its test evaluation had not been run and the viewer assumed two outputs. It is now included in every case. Removing the short 48-token budget does not solve the copying failure: see [Prediction_Quality_Audit.md](Prediction_Quality_Audit.md). The old output/visualizations/test-results.html entry redirects to the complete explorer. Original submission PDF/presentation files remain historical snapshots.
@@ -52,7 +56,7 @@ With the project environment and optional analysis dependencies installed:
 .\.venv\Scripts\python.exe scripts/report_stage_two.py
 ~~~
 
-The generator reads data/processed/stats.json, three main run result/training files, both decoding profiles for all three test metric/prediction files and the saved validation-only learning-rate study. It checks prediction alignment, recorded test metrics, split totals and complete training steps before rendering. The JSON export includes all curves and cases plus SHA-256 fingerprints for 26 input files. The HTML embeds the same numerical data and all five SVG figures.
+The generator reads data/processed/stats.json, three main run result/training files, both decoding profiles for all three test metric/prediction files and the saved validation-only learning-rate study. It checks prediction alignment, recorded test metrics, split totals and complete training steps before rendering. The JSON export includes all curves and cases plus SHA-256 fingerprints for input files listed in the JSON. The HTML embeds the same numerical data and all six SVG figures when the multidimensional assessment is available.
 
 To change layout, edit scripts/templates/stage_two.html; to change the scientific figures, edit scripts/report_stage_two.py, then rebuild. Use a different --output path only if you also adjust relative links when moving the report to a different folder depth.
 

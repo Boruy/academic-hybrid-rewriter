@@ -11,3 +11,9 @@ Processed copies in data/processed are modified versions: normalization, arXiv/i
 The repository contains locally generated tiny BART-format smoke checkpoints and fine-tuned checkpoints initialized from facebook/bart-base. The BART model card is available at https://huggingface.co/facebook/bart-base. Preserve the upstream model attribution and applicable terms. PyTorch, Transformers and Tokenizers are separately installed dependencies under their respective upstream licenses. The Mamba reference adapter in src is newly written for this milestone. The optional official mamba_ssm package is not bundled or validated here.
 
 Raw and processed data, experiment records and fine-tuned checkpoint binaries are included in this repository. Model weights use Git LFS. Virtual environments and the local Hugging Face cache are excluded because they are installation dependencies rather than portable project files. The repository does not assign a new license to the team’s original code.
+
+## Independent evaluation dependencies
+
+BERTScore (MIT): https://github.com/Tiiiger/bert_score. SacreBLEU (Apache-2.0): https://github.com/mjpost/sacrebleu. Exact package versions are recorded in the assessment summary.
+
+The public distilbert/distilroberta-base and cross-encoder/nli-deberta-v3-small model cards declare Apache-2.0. Evaluation model IDs, pinned revisions and file hashes are recorded in output/multidimensional/summary.json; weights remain in the ignored local cache rather than being redistributed here. Preserve model-card/license terms when downloading or redistributing these dependencies.

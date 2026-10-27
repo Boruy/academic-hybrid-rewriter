@@ -5,6 +5,8 @@
 The user requests GitHub synchronization after every completed modification to this project.
 
 - Validate the affected code, documentation or generated results before committing. For stage-two visualizations, run scripts/report_stage_two.py, which checks recorded metrics against predictions, and inspect the generated charts.
+- If multidimensional scoring code, configs, splits or predictions change, rerun python -m academic_rewriter.assess --neural, scripts/report_multidimensional.py and scripts/report_stage_two.py in that order. The report rejects stale scoring inputs.
+- Human-review packets must remain unfilled until actual independent reviewers score them. Keep private blinding keys under ignored .cache; use new paths when exporting another study.
 - Keep the repository presentation and report text in English.
 - Preserve existing user changes. Include related user-requested report changes in the commit; do not silently stage unrelated edits or credentials.
 - Refresh SHA256SUMS.txt for changed and newly tracked project files using actual local bytes (including Git LFS checkpoint bytes). Exclude the manifest itself, .git and ignored runtime/cache files.

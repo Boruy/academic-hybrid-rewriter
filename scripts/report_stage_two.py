@@ -94,8 +94,20 @@ def build_data():
     stats=read('data/processed/stats.json')
     assert sum(s['pairs'] for s in stats['splits'].values())==stats['kept_total']
     assert sum(stats['rejections'].values())+stats['kept_total']==stats['raw_total']
-    return dict(title='Academic Text Style Enhancement',stage='Second submission',stats=stats,
-        models=models,cases=profiles['complete128']['cases'],profiles=profiles,default_profile='complete128',
+    assessment_path='output/multidimensional/summary.json'
+    assessment=read(assessment_path) if (PROJECT/assessment_path).exists() else None
+    assessment_cases={}
+    if assessment:
+        for path,expected in assessment['sources'].items():
+            assert hashlib.sha256((PROJECT/path).read_bytes()).hexdigest()==expected, 'Stale assessment input: '+path
+        sources += [assessment_path,'output/multidimensional/cases.jsonl']
+        for row in jsonl('output/multidimensional/cases.jsonl'):
+            assessment_cases.setdefault(row['id'],{})[row['model']]=row['metrics']
+    human_path='output/human-evaluation/summary.json'
+    human_review=read(human_path) if (PROJECT/human_path).exists() else None
+    if human_review: sources.append(human_path)
+    return dict(title='Academic Text Style Enhancement',stage='Second submission',stats=stats,human_review=human_review,
+        models=models,cases=profiles['complete128']['cases'],profiles=profiles,default_profile='complete128',assessment=assessment,assessment_cases=assessment_cases,
         model_keys=keys,learning_rate_trials=trials,
         reference_same_word_sequence_count=sum(re.findall(r'\w+',c['source'].lower())==re.findall(r'\w+',c['reference'].lower()) for c in profiles['complete128']['cases']),
         protocol=dict(seed=42,steps=300,batch_size=2,input_tokens=128,output_tokens=128,
@@ -245,6 +257,31 @@ def figures(data, out):
     ax.text(7,.48,'G = sigmoid(W[H; M] + b)     |     Author reviews the suggestion',ha='center',fontsize=11,color=MUTED)
     finish(fig,'architecture','The adapter uses a sequential PyTorch reference scan. Official-kernel parity and optimized speedups remain unverified.\nTransformer attention remains in the hybrid; the complete model is not linear-time.')
 
+    if data.get('assessment') and 'bertscore' in data['assessment']['dimensions']['semantic']:
+        summary=data['assessment']
+        keys=list(summary['models'])
+        names=[summary['models'][k]['label'].replace(' (control)','') for k in keys]
+        palette=colors+['#637580','#9273b7']
+        fig,axes=plt.subplots(1,3,figsize=(16,6.1))
+        fig.subplots_adjust(left=.14,right=.97,top=.73,bottom=.28,wspace=.65)
+        fig.text(.045,.93,'MULTIDIMENSIONAL EVALUATION / 87 INSPECTED PAIRS',color='#0c8b81',fontsize=11,weight='bold')
+        fig.text(.045,.84,'High preservation scores can hide a copying failure.',fontsize=23,weight='bold')
+        fields=[('bertscore_source_f1','Source BERTScore F1',1.),('bidirectional_entailment_min','Bidirectional NLI / minimum',1.),('word_edit_rate','Word edit rate (%)',100.)]
+        for ax,(field,title,scale) in zip(axes,fields):
+            rows=[summary['models'][k]['metrics'][field] for k in keys]
+            values=[r['mean']*scale for r in rows]
+            errors=[[max(0,(r['mean']-r['ci95'][0])*scale) for r in rows],[max(0,(r['ci95'][1]-r['mean'])*scale) for r in rows]]
+            ax.barh(range(len(keys)),values,color=palette,height=.5,xerr=errors,error_kw=dict(ecolor=INK,capsize=2,lw=.8))
+            ax.set_yticks(range(len(keys)),names,fontsize=9);ax.invert_yaxis()
+            ax.set_title(title,loc='left');ax.grid(axis='x',alpha=.6);ax.set_axisbelow(True)
+            ax.set_xlim(0,1.24 if scale==1 else max(values)*1.45)
+            if scale==1: ax.set_xticks([0,.25,.5,.75,1.])
+            for i,value in enumerate(values):
+                right=rows[i]['ci95'][1]*scale
+                ax.text(right+(.025 if scale==1 else .7),i,format(value,'.4f' if scale==1 else '.2f'),va='center',fontsize=10)
+            ax.spines[['left','bottom']].set_visible(False);ax.tick_params(length=0)
+        finish(fig,'multidimensional','Raw, unrescaled DistilRoBERTa BERTScore (layer 5). Generic DeBERTa NLI; not a calibrated equivalence test or published MIS.\nIntervals resample 10 connected document groups (1,000 draws). Human references are not adjudicated semantic gold.\nAcademic-style labels, independent fluency ratings and successful-rewrite judgments remain pending.')
+
 
 def main():
     parser=argparse.ArgumentParser(description=__doc__)
@@ -258,7 +295,10 @@ def main():
     template=(PROJECT/'scripts/templates/stage_two.html').read_text(encoding='utf8')
     payload=json.dumps(data,ensure_ascii=False,separators=(',',':')).replace('<','\\u003c').replace('>','\\u003e').replace('&','\\u0026')
     html=template.replace('__RESULTS_DATA__',payload)
-    for name in ['overview','training','learning-rate','test-diagnostics','architecture']:
+    names=['overview','training','learning-rate','test-diagnostics','architecture']
+    if data.get('assessment') and 'bertscore' in data['assessment']['dimensions']['semantic']: names.append('multidimensional')
+    else: html=html.replace('__FIGURE_MULTIDIMENSIONAL__','<p>Multidimensional evaluation has not been run.</p>')
+    for name in names:
         svg=(out/(name+'.svg')).read_text(encoding='utf8')
         svg=svg[svg.index('<svg'):]
         # Inline figures share a document: namespace their IDs and references.

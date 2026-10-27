@@ -1,0 +1,12 @@
+{
+  "sample_cases": 24,
+  "available_cases": 87,
+  "candidates_per_case": 5,
+  "raters": 2,
+  "items_per_rater": 120,
+  "seed": 42,
+  "evaluation_status": "inspected_test_diagnostic",
+  "private_key_sha256": "d23b73cf949652abfc2a0cdbdcd0fdfc41a914df0ac507664df69804c9442f89",
+  "ratings_status": "unfilled",
+  "note": "These are already inspected diagnostic examples. Packets contain no system names. Send only a rater packet and rubric to a reviewer, never the private key."
+}

@@ -1,0 +1,56 @@
+{
+  "schema_version": 1,
+  "data": "data/processed/test.jsonl",
+  "evaluation_status": "inspected_test_diagnostic",
+  "seed": 42,
+  "bootstrap_samples": 1000,
+  "models": [
+    {
+      "id": "bart_baseline",
+      "label": "BART baseline",
+      "predictions": "runs/bart_baseline/evaluation/test-128/predictions.jsonl"
+    },
+    {
+      "id": "frozen_hybrid",
+      "label": "Frozen hybrid",
+      "predictions": "runs/bart_adapter_visible/evaluation/test-128/predictions.jsonl"
+    },
+    {
+      "id": "full_hybrid",
+      "label": "Full hybrid",
+      "predictions": "runs/bart_hybrid_unfrozen/evaluation/test-128/predictions.jsonl"
+    }
+  ],
+  "controls": [
+    "copy_source",
+    "human_reference"
+  ],
+  "bertscore": {
+    "model_id": "distilbert/distilroberta-base",
+    "revision": "fb53ab8802853c8e4fbdbcd0529f21fc6f459b2b",
+    "num_layers": 5,
+    "idf": false,
+    "rescale_with_baseline": false,
+    "use_fast_tokenizer": false
+  },
+  "nli": {
+    "model_id": "cross-encoder/nli-deberta-v3-small",
+    "revision": "fa2804872c3b4bd748f38c0185cc85775361e735",
+    "max_length": 512,
+    "label_ids": {
+      "contradiction": 0,
+      "entailment": 1,
+      "neutral": 2
+    },
+    "aggregation": "minimum of directional entailment probabilities; generic NLI diagnostic, not published MIS"
+  },
+  "style_classifier": null,
+  "human": {
+    "required_raters": 2,
+    "minimum_meaning": 4,
+    "minimum_academic": 4,
+    "minimum_fluency": 4,
+    "minimum_improvement": 1,
+    "thresholds_calibrated": false
+  }
+}
