@@ -52,7 +52,7 @@ def main():
     fig.suptitle('The training signal does not yet match the narrow task',x=.04,ha='left',fontsize=18,fontweight='bold',y=.98);fig.text(.04,.90,'Seed 42 · 100 of 676 IteraTeR pairs · AI-assisted preliminary audit',fontsize=11,color='#637580');fig.text(.04,.025,'Task-specific judgments, not upstream intent labels. All 100 require independent human verification.',fontsize=9,color='#637580');fig.subplots_adjust(left=.29,right=.95,top=.81,bottom=.17)
     for extension in ['svg','png']:
         path=OUT/('data_audit.'+extension);fig.savefig(path,dpi=180)
-        if extension=='svg':path.write_text(path.read_text(encoding='utf8'),encoding='utf8',newline='\n')
+        if extension=='svg':path.write_text('\n'.join(line.rstrip() for line in path.read_text(encoding='utf8').splitlines())+'\n',encoding='utf8',newline='\n')
     plt.close(fig)
     template=(ROOT/'scripts/templates/refinement_report.html').read_text(encoding='utf8')
     payload=json.dumps(result,ensure_ascii=False).replace('<','\\u003c').replace('&','\\u0026')
