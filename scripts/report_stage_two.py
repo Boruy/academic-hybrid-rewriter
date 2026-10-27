@@ -39,61 +39,70 @@ def score(row):
 def build_data():
     sources = ['data/processed/stats.json', 'runs/lr_tuning_offline/comparison.json']
     models = []
-    predictions = []
+    profiles = {}
+    keys = ['baseline', 'hybrid', 'full']
     for run, label, color in RUNS:
         base = f'runs/{run}'
         result, history = read(base + '/result.json'), read(base + '/training_log.json')
         sources += [base + '/result.json', base + '/training_log.json']
         assert len(history) == result['steps'] == 300
         assert [x['step'] for x in history] == list(range(1, 301))
-        metrics = None
-        path = PROJECT / base / 'evaluation/test/metrics.json'
-        if path.exists():
-            metrics = read(base + '/evaluation/test/metrics.json')
-            rows = jsonl(base + '/evaluation/test/predictions.jsonl')
+        models.append(dict(run=run, label=label, color=color, result=result, history=history))
+    for profile, budget, folder in [('complete128',128,'test-128'), ('historical48',48,'test')]:
+        predictions, metrics = [], []
+        for model in models:
+            base = f"runs/{model['run']}/evaluation/{folder}"
+            metric, rows = read(base + '/metrics.json'), jsonl(base + '/predictions.jsonl')
             computed = evaluate(rows)
             for key in ['n', 'whitespace_rouge_l_f1', 'number_multiset_preservation_rate', 'copy_rate']:
-                assert math.isclose(computed[key], metrics[key], abs_tol=1e-10), (run, key)
-            assert metrics['split'] == 'test' and metrics['n'] == 87
-            sources += [base + '/evaluation/test/metrics.json', base + '/evaluation/test/predictions.jsonl']
+                assert math.isclose(computed[key], metric[key], abs_tol=1e-10), (model['run'], profile, key)
+            assert metric['split']=='test' and metric['n']==87 and metric['max_new_tokens']==budget
+            assert metric['max_length']==128 and metric['num_beams']==1 and not metric['do_sample']
+            sources += [base + '/metrics.json', base + '/predictions.jsonl']
             predictions.append(rows)
-        models.append(dict(run=run, label=label, color=color, result=result, history=history, test=metrics))
-    assert len(predictions) == 2
-    assert [r['id'] for r in predictions[0]] == [r['id'] for r in predictions[1]]
-    cases = []
-    for i, (a, b) in enumerate(zip(*predictions)):
-        assert (a['source'], a['reference']) == (b['source'], b['reference'])
-        case = dict(index=i + 1, id=a['id'], source=a['source'], reference=a['reference'])
-        for name, row in [('baseline', a), ('hybrid', b)]:
-            case[name] = dict(text=row['prediction'], score=score(row),
-                copied=row['source'].strip() == row['prediction'].strip(),
-                numbers_preserved=numbers(row['source']) == numbers(row['prediction']),
-                source_numbers=numbers(row['source']),
-                output_numbers=numbers(row['prediction']))
-        case['delta'] = case['hybrid']['score'] - case['baseline']['score']
-        cases.append(case)
-    lr = read('runs/lr_tuning_offline/comparison.json')
-    trials = lr['runs'] + [lr['adaptive_trial']]
+            metrics.append(metric)
+        assert all([r['id'] for r in rows]==[r['id'] for r in predictions[0]] for rows in predictions)
+        cases=[]
+        for i, aligned in enumerate(zip(*predictions)):
+            a=aligned[0]
+            assert all((r['source'],r['reference'])==(a['source'],a['reference']) for r in aligned)
+            case=dict(index=i+1,id=a['id'],source=a['source'],reference=a['reference'],source_copy_score=score(dict(prediction=a['source'],reference=a['reference'])))
+            for name,row in zip(keys,aligned):
+                case[name]=dict(text=row['prediction'],score=score(row),
+                    copied=row['source'].strip()==row['prediction'].strip(),
+                    same_word_sequence=re.findall(r'\w+',row['source'].lower())==re.findall(r'\w+',row['prediction'].lower()),
+                    numbers_preserved=numbers(row['source'])==numbers(row['prediction']),
+                    source_numbers=numbers(row['source']),output_numbers=numbers(row['prediction']),
+                    generated_tokens=row.get('generated_tokens'),
+                    generation_limit_reached=row.get('generation_limit_reached'))
+            case['delta']=case['full']['score']-case['baseline']['score']
+            cases.append(case)
+        profiles[profile]=dict(budget=budget,metrics=metrics,cases=cases,source_copy_rouge_l=statistics.mean(c['source_copy_score'] for c in cases))
+    assert [c['id'] for c in profiles['complete128']['cases']]==[c['id'] for c in profiles['historical48']['cases']]
+    for model,metric in zip(models,profiles['complete128']['metrics']):
+        model['test']=metric
+    lr=read('runs/lr_tuning_offline/comparison.json')
+    trials=lr['runs']+[lr['adaptive_trial']]
     for trial in trials:
-        # Stored paths may refer to the original Windows workstation.
-        parts = trial['checkpoint'].replace('\\', '/').split('/')
-        trial['path'] = '/'.join(parts[parts.index('runs'):])
-        trial['history'] = read(trial['path'] + '/training_log.json')
-        sources.append(trial['path'] + '/training_log.json')
-        vp = trial['path'] + '/validation_log.json'
-        trial['validation'] = read(vp) if (PROJECT / vp).exists() else []
-        if trial['validation']:
-            sources.append(vp)
-    stats = read('data/processed/stats.json')
-    assert sum(s['pairs'] for s in stats['splits'].values()) == stats['kept_total']
-    assert sum(stats['rejections'].values()) + stats['kept_total'] == stats['raw_total']
-    return dict(title='Academic Text Style Enhancement', stage='Second submission',
-        stats=stats, models=models, cases=cases, learning_rate_trials=trials,
-        protocol=dict(seed=42, steps=300, batch_size=2, input_tokens=128, output_tokens=48,
+        parts=trial['checkpoint'].replace('\\','/').split('/')
+        trial['path']='/'.join(parts[parts.index('runs'):])
+        trial['history']=read(trial['path']+'/training_log.json')
+        sources.append(trial['path']+'/training_log.json')
+        vp=trial['path']+'/validation_log.json'
+        trial['validation']=read(vp) if (PROJECT/vp).exists() else []
+        if trial['validation']: sources.append(vp)
+    stats=read('data/processed/stats.json')
+    assert sum(s['pairs'] for s in stats['splits'].values())==stats['kept_total']
+    assert sum(stats['rejections'].values())+stats['kept_total']==stats['raw_total']
+    return dict(title='Academic Text Style Enhancement',stage='Second submission',stats=stats,
+        models=models,cases=profiles['complete128']['cases'],profiles=profiles,default_profile='complete128',
+        model_keys=keys,learning_rate_trials=trials,
+        reference_same_word_sequence_count=sum(re.findall(r'\w+',c['source'].lower())==re.findall(r'\w+',c['reference'].lower()) for c in profiles['complete128']['cases']),
+        protocol=dict(seed=42,steps=300,batch_size=2,input_tokens=128,output_tokens=128,
             interpretation='Single-seed pilot; learning rates and trainable capacities differ. No architectural or academic-tone advantage established.',
-            evaluation='87 inspected test pairs. Deterministic decoding. Full hybrid has no test evaluation.',
+            evaluation='All three checkpoints evaluated on the same 87 inspected pairs at both 48- and 128-token output budgets. This is a post-inspection decoding diagnostic, not confirmatory model selection.',
             efficiency='Time and CUDA allocation are process observations, not controlled efficiency benchmarks.'),
-        sources=[dict(path=p, sha256=hashlib.sha256((PROJECT/p).read_bytes()).hexdigest()) for p in sorted(set(sources))])
+        sources=[dict(path=p,sha256=hashlib.sha256((PROJECT/p).read_bytes()).hexdigest()) for p in sorted(set(sources))])
 
 
 def smooth(values, window=20):
@@ -141,11 +150,11 @@ def figures(data, out):
     fig, axes = plt.subplots(2, 3, figsize=(16, 9.4))
     fig.subplots_adjust(left=.12, right=.96, top=.78, bottom=.13, hspace=.85, wspace=.65)
     fig.text(.045, .94, 'STAGE TWO  /  RECORDED EXPERIMENTS', color='#0c8b81', fontsize=11, weight='bold')
-    fig.text(.045, .875, 'A working hybrid. A measured first comparison.', fontsize=25, weight='bold')
+    fig.text(.045, .875, 'Three models. Little substantive revision.', fontsize=25, weight='bold')
     fig.text(.045, .825, 'BART + Mamba  |  676 revision pairs  |  300 updates  |  seed 42', color=MUTED, fontsize=12)
     bars(axes[0,0], [m['result']['validation_cross_entropy'] for m in models], '01  Validation loss', 'Token cross-entropy / lower is better')
-    bars(axes[0,1], [m['test']['cross_entropy'] for m in models[:2]], '02  Test loss', 'Token cross-entropy / 87 pairs')
-    bars(axes[0,2], [m['test']['whitespace_rouge_l_f1'] for m in models[:2]], '03  Reference overlap', 'Whitespace ROUGE-L F1 / higher is better')
+    bars(axes[0,1], [m['test']['cross_entropy'] for m in models], '02  Test loss', 'Token cross-entropy / 87 pairs')
+    bars(axes[0,2], [m['test']['whitespace_rouge_l_f1'] for m in models]+[data['profiles']['complete128']['source_copy_rouge_l']], '03  Reference overlap', 'Whitespace ROUGE-L F1 / higher is better', labs=labels+['Copy source'], cols=colors+[MUTED])
     bars(axes[1,0], [m['result']['trainable_parameters']/1e6 for m in models], '04  Trainable capacity', 'Million parameters', '.2f')
     bars(axes[1,1], [m['result']['peak_cuda_allocated_mib'] for m in models], '05  Observed CUDA allocation', 'Peak allocated MiB / process observation', ',.0f')
     ax=axes[1,2]
@@ -153,7 +162,7 @@ def figures(data, out):
         ax.plot([r['step'] for r in m['history']], smooth([r['train_loss'] for r in m['history']]), color=m['color'], lw=1.8)
     ax.set(title='06  Training trajectory', xlabel='Optimizer step', ylabel='Train CE / trailing mean, 20 updates', xlim=(1,300), ylim=(0,2.1))
     ax.grid(axis='y', alpha=.7)
-    finish(fig, 'overview', 'Different learning rates and capacities; no architectural advantage established. Full hybrid: test not evaluated.\nNumber preservation and overlap do not certify meaning or academic tone. Test examples have been inspected.')
+    finish(fig, 'overview', 'Different learning rates and capacities; no architectural advantage established. All three checkpoints tested at a 128-token output budget.\nNumber preservation and overlap do not certify meaning or academic tone. Test examples have been inspected.')
 
     fig, axes = plt.subplots(1, 3, figsize=(15, 5.7), sharey=True)
     fig.subplots_adjust(left=.065, right=.98, top=.73, bottom=.23, wspace=.12)
@@ -196,25 +205,27 @@ def figures(data, out):
     fig, axes=plt.subplots(1,3,figsize=(15,5.8))
     fig.subplots_adjust(left=.06,right=.97,top=.72,bottom=.27,wspace=.34)
     fig.text(.045,.92,'TEST DIAGNOSTICS  /  87 ALIGNED PAIRS',color='#0c8b81',fontsize=11,weight='bold')
-    fig.text(.045,.83,'Similar overlap. Inspect what changed.',fontsize=23,weight='bold')
-    for name,m in zip(['baseline','hybrid'],models):
+    fig.text(.045,.83,'Three models, one decoding protocol.',fontsize=23,weight='bold')
+    for name,m in zip(data['model_keys'],models):
         axes[0].hist([c[name]['score'] for c in cases],bins=[i/10 for i in range(11)],histtype='step',color=m['color'],lw=2,label=m['label'])
-    axes[0].set(title='Reference-overlap distribution',xlabel='Whitespace ROUGE-L F1',ylabel='Test examples',xlim=(0,1),ylim=(0,35))
+    axes[0].set(title='Reference-overlap distribution',xlabel='Whitespace ROUGE-L F1',ylabel='Test examples',xlim=(0,1))
     axes[0].legend(frameon=False,fontsize=9)
-    axes[1].scatter([c['baseline']['score'] for c in cases],[c['hybrid']['score'] for c in cases],s=26,alpha=.7,color='#0c8b81',edgecolor=BG,lw=.4)
+    for name,model in zip(['hybrid','full'],models[1:]):
+        axes[1].scatter([c['baseline']['score'] for c in cases],[c[name]['score'] for c in cases],s=26,alpha=.7,color=model['color'],edgecolor=BG,lw=.4,label=model['label'])
+    axes[1].legend(frameon=False,fontsize=8)
     axes[1].plot([0,1],[0,1],ls='--',color=MUTED,lw=1)
-    axes[1].set(title='Paired example scores',xlabel='BART ROUGE-L',ylabel='Frozen hybrid ROUGE-L',xlim=(0,1.03),ylim=(0,1.03))
+    axes[1].set(title='Paired example scores',xlabel='BART ROUGE-L',ylabel='Hybrid ROUGE-L',xlim=(0,1.03),ylim=(0,1.03))
     ax=axes[2]
-    categories=['Numbers preserved','Exact source copies']
-    for offset,name,m in zip([-.17,.17],['baseline','hybrid'],models):
-        vals=[sum(c[name]['numbers_preserved'] for c in cases),sum(c[name]['copied'] for c in cases)]
-        ax.barh([i+offset for i in range(2)],vals,height=.28,color=m['color'])
+    categories=['Numbers preserved','Exact source copies','Same word sequence']
+    for offset,name,m in zip([-.25,0,.25],data['model_keys'],models):
+        vals=[sum(c[name]['numbers_preserved'] for c in cases),sum(c[name]['copied'] for c in cases),sum(c[name]['same_word_sequence'] for c in cases)]
+        ax.barh([i+offset for i in range(3)],vals,height=.21,color=m['color'])
         for i,v in enumerate(vals): ax.text(v+1.8,i+offset,f'{v}/87',va='center',fontsize=10)
-    ax.set_yticks([0,1],categories,fontsize=9)
+    ax.set_yticks([0,1,2],categories,fontsize=9)
     ax.set(title='Diagnostic counts',xlabel='Test examples',xlim=(0,108))
     ax.invert_yaxis()
     for ax in axes: ax.grid(axis='y',alpha=.5); ax.set_axisbelow(True)
-    finish(fig,'test-diagnostics','Number counts include examples without numbers. Copying can earn high overlap without performing the requested revision.\nThese checks do not establish meaning preservation or better academic tone. Input: 128 tokens; generation: at most 48 new tokens.')
+    finish(fig,'test-diagnostics','Same word sequence ignores case/punctuation; only 4/87 human references retain the source sequence.\nNumber counts include examples without numbers. Copying can earn high overlap without performing the requested revision.\nThese checks do not establish meaning preservation or better academic tone. Input: 128 tokens; generation: at most 128 new tokens.')
 
     fig,ax=plt.subplots(figsize=(14,5.2))
     fig.subplots_adjust(left=.03,right=.97,top=.72,bottom=.2)

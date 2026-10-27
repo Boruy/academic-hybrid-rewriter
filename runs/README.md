@@ -4,7 +4,7 @@ Each directory listed below contains a complete checkpoint, tokenizer, backbone 
 
 | Directory | Model / purpose | Steps | Train / validation pairs | Learning rate | Validation CE |
 | --- | --- | ---: | ---: | ---: | ---: |
-| runs/bart_adapter_visible | hybrid / frozen or tiny | 300 | 491 / 98 | 1e-4 | 1.137914 |
+| runs/bart_adapter_visible | hybrid / frozen | 300 | 491 / 98 | 1e-4 | 1.137914 |
 | runs/bart_baseline | transformer | 300 | 491 / 98 | 5e-5 | 1.231209 |
 | runs/bart_hybrid_lr_adjusted | hybrid / full | 300 | 491 / 98 | 2e-5 | 1.079475 |
 | runs/bart_hybrid_lr_adjusted_patience0 | hybrid / full | 300 | 491 / 98 | 2e-5 | 1.079941 |
@@ -18,4 +18,4 @@ The primary frozen hybrid for the presentation and test viewer is bart_adapter_v
 
 The lr_tuning_offline comparison uses only validation scores. Its two additional constant-rate checkpoints and both plateau diagnostic checkpoints are retained. Result metadata preserves original paths and settings. The report generator resolves historical Windows run paths relative to the current checkout.
 
-The BART and frozen-hybrid test predictions are in their evaluation/test directories. The test set has been inspected and should not be treated as unseen confirmatory data. Current unit-test output is in tests.txt.
+All three main checkpoints have test predictions in evaluation/test (48 new tokens) and evaluation/test-128 (128 new tokens). The latter is a post-inspection length diagnostic with raw generation-length and cap-hit metadata. The full-hybrid test evaluation was added after the initial report; weights are unchanged. The complete three-model viewer is output/stage-two/index.html. The test set has been inspected and should not be treated as unseen confirmatory data. Current unit-test output is in tests.txt.

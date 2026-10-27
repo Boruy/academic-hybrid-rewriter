@@ -1,20 +1,3 @@
-test_document_and_text_leakage (test_pipeline.PipelineTests.test_document_and_text_leakage) ... ok
-test_hybrid_loss_generation_and_padding (test_pipeline.PipelineTests.test_hybrid_loss_generation_and_padding) ... D:\conda\envs\tee\Lib\site-packages\transformers\tokenization_utils_base.py:1601: FutureWarning: `clean_up_tokenization_spaces` was not set. It will be set to `True` by default. This behavior will be depracted in transformers v4.45, and will be then set to `False` by default. For more details check this issue: https://github.com/huggingface/transformers/issues/31884
-  warnings.warn(
-ok
-test_normalization_and_numbers (test_pipeline.PipelineTests.test_normalization_and_numbers) ... ok
-test_reference_mask_and_gradients (test_pipeline.PipelineTests.test_reference_mask_and_gradients) ... ok
-test_validation_plateau_reduces_lr_and_persists_live_metrics (test_training_controls.TrainingControlsTests.test_validation_plateau_reduces_lr_and_persists_live_metrics)
-Opposing validation targets expose overfitting and must lower the LR. ... D:\conda\envs\tee\Lib\site-packages\transformers\tokenization_utils_base.py:1601: FutureWarning: `clean_up_tokenization_spaces` was not set. It will be set to `True` by default. This behavior will be depracted in transformers v4.45, and will be then set to `False` by default. For more details check this issue: https://github.com/huggingface/transformers/issues/31884
-  warnings.warn(
-Some non-default generation parameters are set in the model config. These should go into a GenerationConfig file (https://huggingface.co/docs/transformers/generation_strategies#save-a-custom-decoding-strategy-with-your-model) instead. This warning will be raised to an exception in v4.41.
-Non-default generation parameters: {'forced_eos_token_id': 2}
-ok
-
-----------------------------------------------------------------------
-Ran 5 tests in 7.181s
-
-OK
 {
   "seed": 42,
   "raw_counts": {
@@ -71,3 +54,23 @@ OK
   },
   "limitation": "Exact text checks do not detect semantic near duplicates. Intent labels do not guarantee academic tone or factual equivalence."
 }
+test_cap_hit_excludes_decoder_start_and_batch_padding (test_generation_diagnostics.GenerationDiagnosticsTests.test_cap_hit_excludes_decoder_start_and_batch_padding) ... ok
+test_default_budget_and_historical_override (test_generation_diagnostics.GenerationDiagnosticsTests.test_default_budget_and_historical_override) ... ok
+test_new_default_does_not_overwrite_historical_evidence (test_generation_diagnostics.GenerationDiagnosticsTests.test_new_default_does_not_overwrite_historical_evidence) ... ok
+test_document_and_text_leakage (test_pipeline.PipelineTests.test_document_and_text_leakage) ... ok
+test_hybrid_loss_generation_and_padding (test_pipeline.PipelineTests.test_hybrid_loss_generation_and_padding) ... D:\conda\envs\tee\Lib\site-packages\transformers\tokenization_utils_base.py:1601: FutureWarning: `clean_up_tokenization_spaces` was not set. It will be set to `True` by default. This behavior will be depracted in transformers v4.45, and will be then set to `False` by default. For more details check this issue: https://github.com/huggingface/transformers/issues/31884
+  warnings.warn(
+ok
+test_normalization_and_numbers (test_pipeline.PipelineTests.test_normalization_and_numbers) ... ok
+test_reference_mask_and_gradients (test_pipeline.PipelineTests.test_reference_mask_and_gradients) ... ok
+test_validation_plateau_reduces_lr_and_persists_live_metrics (test_training_controls.TrainingControlsTests.test_validation_plateau_reduces_lr_and_persists_live_metrics)
+Opposing validation targets expose overfitting and must lower the LR. ... D:\conda\envs\tee\Lib\site-packages\transformers\tokenization_utils_base.py:1601: FutureWarning: `clean_up_tokenization_spaces` was not set. It will be set to `True` by default. This behavior will be depracted in transformers v4.45, and will be then set to `False` by default. For more details check this issue: https://github.com/huggingface/transformers/issues/31884
+  warnings.warn(
+Some non-default generation parameters are set in the model config. These should go into a GenerationConfig file (https://huggingface.co/docs/transformers/generation_strategies#save-a-custom-decoding-strategy-with-your-model) instead. This warning will be raised to an exception in v4.41.
+Non-default generation parameters: {'forced_eos_token_id': 2}
+ok
+
+----------------------------------------------------------------------
+Ran 8 tests in 3.923s
+
+OK

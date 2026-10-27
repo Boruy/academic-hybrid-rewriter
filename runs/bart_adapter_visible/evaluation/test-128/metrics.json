@@ -1,0 +1,21 @@
+{
+  "n": 87,
+  "whitespace_rouge_l_f1": 0.8137715240981255,
+  "number_multiset_preservation_rate": 0.9770114942528736,
+  "copy_rate": 0.3448275862068966,
+  "warning": "ROUGE is a whitespace diagnostic. Number preservation is not semantic equivalence. Use independent human labels for academic tone.",
+  "sacrebleu": null,
+  "generation_limit_reached_count": 0,
+  "input_truncated_count": 0,
+  "target_truncated_count": 0,
+  "diagnostic_note": "A cap hit means the output used the complete generation budget; it does not prove every such sentence is incomplete.",
+  "checkpoint": "P:\\MLProject\\runs\\bart_adapter_visible",
+  "split": "test",
+  "device": "cuda",
+  "cross_entropy": 0.7802188520499558,
+  "max_length": 128,
+  "max_new_tokens": 128,
+  "num_beams": 1,
+  "do_sample": false,
+  "test_set_used": true
+}

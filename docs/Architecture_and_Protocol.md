@@ -1,6 +1,6 @@
 # Architecture and experiment protocol
 
-Status: 26 October 2026.
+Status: 27 October 2026.
 
 ## Implemented model
 
@@ -32,9 +32,9 @@ The saved weights are from the final update. A best observed validation score do
 
 ## Evaluation boundaries
 
-The baseline and frozen hybrid have been evaluated on all 87 test pairs with deterministic decoding, a 128-token input limit and at most 48 new tokens. Test predictions have also been inspected in the visualization and presentation. This set is no longer unseen. It is separate from training and validation, but a confirmatory study needs new held-out data or a transparently revised protocol.
+All three main checkpoints have been evaluated on all 87 test pairs with deterministic greedy decoding and a 128-token input limit. The historical protocol allows 48 new tokens; an additional post-inspection length diagnostic allows 128. The same checkpoints and examples are used for both. No model selection claim is made from this diagnostic. Test predictions have also been inspected in the visualization and presentation. This set is no longer unseen. It is separate from training and validation, but a confirmatory study needs new held-out data or a transparently revised protocol.
 
-Whitespace ROUGE-L is an overlap diagnostic. Number multiset preservation cannot detect changes to negation, hedging, entities or citations. Exact copying can earn a high overlap score while missing the intended revision. Independent academic-tone ratings and blinded meaning review remain pending.
+Whitespace ROUGE-L is an overlap diagnostic. At 128 new tokens, returning the input unchanged scores 0.8503, above the full hybrid at 0.8138. The full hybrid retains the source word sequence in 77/87 cases (case/punctuation ignored), versus 4/87 human references. See Prediction_Quality_Audit.md. Number multiset preservation cannot detect changes to negation, hedging, entities or citations. Exact copying can earn a high overlap score while missing the intended revision. Independent academic-tone ratings and blinded meaning review remain pending.
 
 ## Next study
 

@@ -6,12 +6,13 @@ A BART + Mamba prototype for academic sentence revision. Current evidence includ
 
 ![Stage-two recorded experiment overview](output/stage-two/overview.png)
 
-- **[Stage-two interactive visual report](output/stage-two/index.html)**: download and open locally; compare both models across all 87 test examples, search/filter cases and inspect token edits
+- **[Stage-two interactive visual report](output/stage-two/index.html)**: download and open locally; compare all three models across all 87 test examples and both output budgets, search/filter cases and inspect token edits
 - [Stage-two figure gallery and rebuild instructions](docs/Stage_Two_Visualization.md), with PNG/SVG exports and source fingerprints
-- [Five-minute English presentation](output/presentation-5min-en/Academic_Text_Style_Enhancement_5min_EN.pptx)
+- [Original five-minute English presentation (snapshot)](output/presentation-5min-en/Academic_Text_Style_Enhancement_5min_EN.pptx)
 - [Timed English speaker script](output/presentation-5min-en/English_Speaker_Script_5min.md), also embedded in the slide notes
-- [Interactive test examples](output/visualizations/test-results.html): open locally in a browser, or download the repository first
-- [One-page second-submission report](output/second-submission/Second_Submission_Report_EN.pdf) and [editable report text](docs/Milestone_Report.md)
+- [Interactive test examples](output/stage-two/index.html#examples): open locally in a browser, or download the repository first
+- [Original one-page second-submission report (snapshot)](output/second-submission/Second_Submission_Report_EN.pdf) and [editable report text](docs/Milestone_Report.md)
+- **[Prediction-quality audit](docs/Prediction_Quality_Audit.md)**: short-budget truncation, missing full-hybrid results and the remaining copying failure
 - [Progress evidence](docs/Progress_Evidence.md)
 - [Architecture and evaluation protocol](docs/Architecture_and_Protocol.md)
 - [Dataset card](docs/Dataset_Card.md) and [learning-rate analysis](docs/Learning_Rate_Analysis.md)
@@ -30,14 +31,20 @@ All three pretrained runs below use facebook/bart-base, 300 updates, batch size 
 
 Learning rates and trainable parameter counts differ. These single-seed observations do not isolate an architectural advantage.
 
-| Test metric, 87 pairs | BART baseline | Frozen hybrid |
-| --- | ---: | ---: |
-| Whitespace ROUGE-L F1 | 0.7580 | 0.7566 |
-| Token cross-entropy | 0.8213 | 0.7802 |
-| Detected number multisets preserved | 87/87 | 85/87 |
-| Exact copies of source | 24/87 | 24/87 |
+All three checkpoints now have test predictions under both a 48-token historical budget and a 128-token diagnostic budget. The 128-token run changes decoding length only; no weights were retrained.
 
-Generation is deterministic, with a 128-token input limit and at most 48 new tokens. ROUGE-L is a whitespace diagnostic. Number checks include examples without numbers and cannot certify meaning. The test set has been evaluated and inspected. Future confirmatory work needs fresh held-out examples or a revised protocol.
+| Test metric, 87 pairs, max 128 new tokens | BART baseline | Frozen hybrid | Full hybrid |
+| --- | ---: | ---: | ---: |
+| Whitespace ROUGE-L F1 | 0.8146 | 0.8138 | 0.8138 |
+| Token cross-entropy | 0.8213 | 0.7802 | 0.7395 |
+| Detected number multisets preserved | 87/87 | 85/87 | 87/87 |
+| Exact copies of source | 32/87 | 30/87 | 32/87 |
+| Same word sequence, ignoring case/punctuation | 83/87 | 75/87 | 77/87 |
+| Generation budget reached | 0/87 | 0/87 | 0/87 |
+
+**Current quality is poor.** Returning the source unchanged scores 0.8503 ROUGE-L, above all three models. Only 4/87 human references retain the source word sequence, compared with 77/87 full-hybrid outputs. Lower teacher-forced CE has not translated into effective rewriting.
+
+The original 48-token ROUGE-L values are 0.7580 / 0.7566 / 0.7569. The web report retains both protocols and defaults to verbatim outputs from the 128-token diagnostic. Its figures use that explicitly labeled profile. ROUGE-L is a whitespace diagnostic; number counts include inputs without numbers and cannot certify meaning. The length diagnostic followed test inspection and is not confirmatory model selection. Future confirmatory work needs fresh held-out examples or a revised protocol. See the [quality audit](docs/Prediction_Quality_Audit.md).
 
 ## Installation
 
