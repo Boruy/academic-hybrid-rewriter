@@ -2,6 +2,10 @@
 
 Status: 27 October 2026.
 
+This document describes the historical BART architecture and experiments. The current
+six-layer implementation is documented in [Six_Layer_Model.md](Six_Layer_Model.md).
+Project execution is user-controlled; commands are provided for manual execution.
+
 ## Implemented model
 
 A heuristic detector flags conversational or vague patterns. The author can request rewriting and reviews the suggestion. The rewriter uses a pretrained BART encoder, a normalized Mamba adapter, feature fusion and the BART decoder.

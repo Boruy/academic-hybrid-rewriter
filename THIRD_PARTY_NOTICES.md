@@ -1,5 +1,12 @@
 # Third party data and libraries
 
+The new `data/academic-pairs-v1` training corpus combines the attributed existing
+IteraTeR training data with 12,000 newly authored synthetic semantic-frame pairs.
+Synthetic sentences are hypothetical examples, not newly redistributed paper text
+or independent human revisions. Their provenance and limitations are recorded in
+the dataset README and manifest. The six-layer model uses PyTorch modules and the
+project's existing Mamba reference code; it does not bundle pretrained BART weights.
+
 IteraTeR-HUMAN sentence data are from Wanyu Du, Vipul Raheja, Dhruv Kumar, Zae Myung Kim, Melissa Lopez and Dongyeop Kang, Understanding Iterative Revision from Human-Written Text (ACL 2022).
 
 Dataset: https://huggingface.co/datasets/wanyu/IteraTeR_human_sent

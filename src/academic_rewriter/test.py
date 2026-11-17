@@ -8,6 +8,7 @@ from transformers import AutoTokenizer, BartConfig, BartForConditionalGeneration
 
 from .evaluate import evaluate
 from .models import HybridRewriter
+from .six_layer import SixLayerConfig, SixLayerRewriter
 from .run import batch, read_rows
 
 
@@ -59,8 +60,11 @@ def run(args):
     print(f'Loading {root} on {device}; evaluating {len(rows)} {args.split} pairs', flush=True)
     tokenizer = AutoTokenizer.from_pretrained(root/'tokenizer', local_files_only=True)
     tokenizer.padding_side = 'right'
-    backbone = BartForConditionalGeneration(BartConfig.from_pretrained(root/'backbone_config', local_files_only=True))
-    model = backbone if meta['model']=='transformer' else HybridRewriter(backbone, meta['fusion'], meta['backend'])
+    if meta['model']=='six_layer':
+        model = SixLayerRewriter(SixLayerConfig.load(root/'six_layer_config.json'))
+    else:
+        backbone = BartForConditionalGeneration(BartConfig.from_pretrained(root/'backbone_config', local_files_only=True))
+        model = backbone if meta['model']=='transformer' else HybridRewriter(backbone, meta['fusion'], meta['backend'])
     model.load_state_dict(torch.load(root/'weights.pt', map_location='cpu', weights_only=True))
     model.to(device).eval()
     predictions = []

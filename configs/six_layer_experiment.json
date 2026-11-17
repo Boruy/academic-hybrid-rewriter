@@ -1,0 +1,28 @@
+{
+  "study": "six-layer-synthetic-v1",
+  "data": "data/academic-pairs-v1",
+  "output": "runs/six_layer_manual_v1",
+  "model": "six_layer",
+  "layer_layout": ["lstm", "lstm", "transformer", "transformer", "mamba", "mamba"],
+  "initialization": "from scratch; byte-level BPE fitted to training text only",
+  "settings": {
+    "d_model": 192,
+    "attention_heads": 4,
+    "ffn_dim": 768,
+    "dropout": 0.1,
+    "steps": 2000,
+    "train_limit": 0,
+    "val_limit": 0,
+    "batch_size": 16,
+    "max_length": 192,
+    "lr": 0.0003,
+    "seed": 42,
+    "eval_every": 250,
+    "log_every": 100,
+    "sampling": "shuffle-epochs",
+    "checkpoint_selection": "best-validation",
+    "early_stopping_patience": 4,
+    "reject_truncation": true
+  },
+  "evaluation": "Unchanged inspected real validation/test sets are diagnostics. Synthetic pairs are training-only. New tokenizer CE is not directly comparable to historical BART CE."
+}

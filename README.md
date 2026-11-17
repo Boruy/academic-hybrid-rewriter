@@ -1,8 +1,10 @@
 # Academic Text Style Enhancement
 
-A BART + Mamba prototype for academic sentence revision. Current evidence includes real revision data, pretrained training, saved checkpoints and an inspected test comparison. It does not yet establish better academic tone or meaning preservation.
+A prototype for academic sentence revision. The new implementation has **six sequence layers: 2 LSTM + 2 Transformer + 2 Mamba**, with no additional BART encoder or decoder. The earlier BART + Mamba experiments remain available as historical baselines. Useful academic-expression improvement has not yet been independently established.
 
-The next-stage task is **Academic Style Enhancement with Meaning Preservation**, scoped to academic sentence refinement. The architecture is retained. The [new interactive data audit](output/academic-refinement/index.html) presents 100 preliminary existing-pair judgments, a pinned arXivEdits candidate pool and the four-arm specialization protocol. Of 199 screened new candidates, 21 development pairs are AI-shortlisted; **zero are independently human-verified**. Real specialization training and improved-output evidence remain pending. See the [protocol, curation packets and training commands](docs/Academic_Refinement_Protocol.md).
+The [six-layer implementation and user-run commands](docs/Six_Layer_Model.md) include a [versioned training dataset](data/academic-pairs-v1/README.md): **12,000 generated less-academic/academic pairs + 491 existing real revisions = 12,491 training pairs**. Synthetic pairs are template-generated, explicitly unverified and training-only. The original real validation/test bytes and frozen arXivEdits study are preserved. Run `scripts/train_six_layer.py` yourself to train into the fresh `runs/six_layer_manual_v1` directory; the agent must not execute project code unless explicitly requested.
+
+The task is **Academic Style Enhancement with Meaning Preservation**, scoped to academic sentence refinement. The [existing interactive data audit](output/academic-refinement/index.html) presents 100 preliminary existing-pair judgments, a pinned arXivEdits candidate pool and the earlier four-arm BART specialization protocol. Of 199 screened new candidates, 21 development pairs are AI-shortlisted; **zero are independently human-verified**. Human-curated specialization training and improved-output evidence remain pending. See the [historical curation protocol](docs/Academic_Refinement_Protocol.md).
 
 ## Presentation and results
 
@@ -28,7 +30,7 @@ Full hybrid source BERTScore is about 0.9975, but average word edit rate is only
 
 [Blinded reviewer 1](output/human-evaluation/rater_1.html) and [reviewer 2](output/human-evaluation/rater_2.html) packets contain 120 unscored candidates each from 24 already inspected cases. Their private model mapping remains under ignored .cache. This is a diagnostic pilot, not a new confirmatory test. See the [complete protocol and commands](docs/Multidimensional_Evaluation.md) and [human rubric](docs/Human_Evaluation_Rubric.md).
 
-## Current evidence
+## Historical BART experiment evidence
 
 The pinned IteraTeR-HUMAN sentence release contains 4,018 records. Cleaning retains 676 arXiv pairs across 95 documents: 491 training, 98 validation and 87 test pairs. Recorded cross-split document and exact-text intersections are zero. Only 24 pairs carry a style label.
 

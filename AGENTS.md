@@ -1,5 +1,14 @@
 # Project working instructions
 
+## Manual code execution
+
+The user wants to run project code personally. Generate or edit code and provide
+PowerShell commands; do not execute training, inference, data generators, tests,
+report builders or other project scripts unless the user explicitly asks for that
+execution. This instruction takes precedence over executable validation steps below:
+provide those commands for the user and report them as pending. Static review,
+file inspection and the authorized GitHub synchronization may continue.
+
 ## GitHub synchronization
 
 The user requests GitHub synchronization after every completed modification to this project.
