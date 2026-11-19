@@ -27,18 +27,37 @@ def write_rows(path, rows):
 
 
 class JointRewriterTests(unittest.TestCase):
+    def test_preexisting_joint_checkpoint_keeps_three_stage_layout(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            path = Path(temporary)/'six_layer_config.json'
+            path.write_text(json.dumps(dict(vocab_size=24, d_model=16, depth='joint',
+                                            word_replacements=word_replacements(WORDS))), encoding='utf8')
+            model = SixLayerRewriter(SixLayerConfig.load(path))
+            self.assertEqual(model.prediction_stage_layers, (2, 4, 6))
+            self.assertIsNone(model.mid_predictions)
+
     def test_sentence_supervision_reaches_the_word_guidance_module(self):
         with tempfile.TemporaryDirectory() as temporary:
             torch.manual_seed(8)
             tokenizer = build_tokenizer(WORDS, Path(temporary))
             model = SixLayerRewriter(SixLayerConfig(
                 vocab_size=len(tokenizer), d_model=16, attention_heads=2, ffn_dim=32,
-                dropout=0., max_positions=48, depth='joint', word_replacements=word_replacements(WORDS)))
+                dropout=0., max_positions=48, depth='joint', prediction_stages=4,
+                word_replacements=word_replacements(WORDS)))
             task = WordTask(model, tokenizer, 'cpu', 20)
             inputs = batch(WORDS[:2], tokenizer, 'cpu', 20, task)
             guidance = inputs['word_guidance']
+            self.assertEqual(guidance.size(-1), 3)
             self.assertGreater(guidance.sum().item(), 0.)
             self.assertEqual(guidance[:, 0].count_nonzero().item(), 0)  # Ignore the BOS position.
+            different_targets = [dict(row, target='Unrelated reference.') for row in WORDS[:2]]
+            torch.testing.assert_close(batch(different_targets, tokenizer, 'cpu', 20, task)['word_guidance'],
+                                       guidance)
+            earlier_stage_weights = tuple(model.mid_predictions[layer][0].weight for layer in ('1', '2'))
+            stage_gradients = torch.autograd.grad(guidance[..., 2].sum(), earlier_stage_weights, retain_graph=True)
+            for gradient in stage_gradients:
+                self.assertTrue(torch.isfinite(gradient).all())
+                self.assertGreater(gradient.abs().sum().item(), 0.)
             losses = model.sequence_losses(**inputs)
             self.assertEqual(set(losses), {'medium', 'deep'})
             gradients = torch.autograd.grad(sum(losses.values()),
@@ -54,29 +73,30 @@ class JointRewriterTests(unittest.TestCase):
             self.assertEqual(revised, source.replace('get  ', 'gain  '))
             self.assertEqual(len(edits), 1)
 
-    def test_cached_decoding_uses_both_stage_guides(self):
+    def test_cached_decoding_uses_the_guides_for_its_stages(self):
         torch.manual_seed(8)
         model = SixLayerRewriter(SixLayerConfig(
-            vocab_size=24, d_model=16, attention_heads=2, ffn_dim=32, dropout=0., depth='joint',
+            vocab_size=24, d_model=16, attention_heads=2, ffn_dim=32, dropout=0., depth='joint', prediction_stages=4,
             word_replacements=word_replacements(WORDS))).eval()
         tokens = torch.tensor([[1, 4, 5, 2, 1, 6, 2]])
         mask = torch.ones_like(tokens)
         segments = torch.tensor([[0, 0, 0, 0, 1, 1, 1]])
-        guidance = torch.zeros(1, tokens.size(1), 2)
-        guidance[0, 1:3] = torch.tensor([[.5, .1], [.2, .7]])
-        late_only = guidance.clone()
-        late_only[..., 0] = 0
+        guidance = torch.zeros(1, tokens.size(1), 3)
+        guidance[0, 1:3] = torch.tensor([[.5, .1, .3], [.2, .7, .4]])
         with torch.no_grad():
             for depth, count in NEURAL_DEPTHS.items():
                 with self.subTest(depth=depth):
                     expected = model.sequence_logits(tokens, mask, segments, depth=depth, word_guidance=guidance)
                     plain = model.sequence_logits(tokens, mask, segments, depth=depth)
                     self.assertFalse(torch.allclose(expected, plain))
-                    later = model.sequence_logits(tokens, mask, segments, depth=depth, word_guidance=late_only)
-                    if depth == 'deep':
-                        self.assertFalse(torch.allclose(later, plain))
-                    else:
-                        torch.testing.assert_close(later, plain)
+                    for layer, channel in model.word_guide_channels.items():
+                        only = torch.zeros_like(guidance)
+                        only[..., channel] = guidance[..., channel]
+                        isolated = model.sequence_logits(tokens, mask, segments, depth=depth, word_guidance=only)
+                        if layer < count:
+                            self.assertFalse(torch.allclose(isolated, plain))
+                        else:
+                            torch.testing.assert_close(isolated, plain)
                     states = [None] * count
                     for position in range(tokens.size(1)):
                         actual, states = model.step(tokens[:, position], torch.tensor([position]),
@@ -108,7 +128,11 @@ class JointRewriterTests(unittest.TestCase):
                     evaluate_checkpoint(evaluation_parser().parse_args(flags + ['--word-test', str(words)]))
             self.assertFalse(trained['test_set_used'])
             self.assertEqual(trained['rewrite_modes'], ['shallow', 'medium', 'deep'])
+            self.assertEqual(trained['prediction_stage_layers'], [1, 2, 4, 6])
+            self.assertEqual(metrics['prediction_stage_layers'], [1, 2, 4, 6])
             record, = read_rows(output/'training_progress.jsonl')
+            word_losses = [record[f'p{index}_word_cross_entropy'] for index in (1, 2, 3)]
+            self.assertAlmostEqual(record['word_cross_entropy'], sum(word_losses)/3, places=5)
             expected = .5*(record['medium_cross_entropy'] + record['deep_cross_entropy'])
             expected += training.word_loss_weight*record['word_cross_entropy']
             self.assertAlmostEqual(record['train_loss'], expected, places=5)

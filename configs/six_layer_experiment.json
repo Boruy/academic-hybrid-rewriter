@@ -1,7 +1,7 @@
 {
-  "study": "six-layer-joint-v1",
+  "study": "six-layer-joint-v2",
   "data": "data/academic-pairs-v1",
-  "output": "runs/six_layer_joint_v1",
+  "output": "runs/six_layer_joint_v2",
   "model": "six_layer",
   "layer_layout": ["lstm", "lstm", "transformer", "transformer", "mamba", "mamba"],
   "initialization": "from scratch; byte-level BPE fitted to sentence and word training text only",

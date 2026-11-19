@@ -2,7 +2,7 @@
 
 [Project overview in Chinese](docs/Project_Overview_ZH.md)
 
-The [three rewrite levels](docs/Three_Level_Model.md) share a single jointly trained checkpoint. The shallow word module highlights likely edits for each subsequent stage.
+The [three rewrite levels](docs/Three_Level_Model.md) share a single jointly trained checkpoint with four internal prediction stages. A single-word edit module guides each of the three stage transitions.
 
 An academic text revision model with exactly **2 LSTM + 2 Transformer + 2 Mamba** sequence blocks. The model trains from scratch with a training-only tokenizer. Architecture and commands are documented in [Six_Layer_Model.md](docs/Six_Layer_Model.md).
 
@@ -39,8 +39,8 @@ The prepared dataset already exists: **12,491 training pairs** (12,000 synthetic
 Use a fresh output directory for each run:
 
 ```powershell
-.\.venv\Scripts\python.exe scripts/train_six_layer.py --output runs/six_layer_joint_v1 --print-command
-.\.venv\Scripts\python.exe scripts/train_six_layer.py --output runs/six_layer_joint_v1
+.\.venv\Scripts\python.exe scripts/train_six_layer.py --output runs/six_layer_joint_v2 --print-command
+.\.venv\Scripts\python.exe scripts/train_six_layer.py --output runs/six_layer_joint_v2
 ```
 
 Each update learns from both training corpora and combines the word objective with the medium and deep sentence objectives. The launcher verifies the data and generator hashes. The settings use width 192, four attention heads, batch size 16, LR 3e-4, up to 2,000 updates, validation every 250 updates, best-validation checkpoint selection and early stopping. Existing weights are protected against accidental replacement.
@@ -48,8 +48,8 @@ Each update learns from both training corpora and combines the word objective wi
 ## Test and export all predictions
 
 ```powershell
-.\.venv\Scripts\python.exe -m academic_rewriter.test --checkpoint runs/six_layer_joint_v1 --split validation --limit 0
-.\.venv\Scripts\python.exe -m academic_rewriter.test --checkpoint runs/six_layer_joint_v1 --split test --limit 0
+.\.venv\Scripts\python.exe -m academic_rewriter.test --checkpoint runs/six_layer_joint_v2 --split validation --limit 0
+.\.venv\Scripts\python.exe -m academic_rewriter.test --checkpoint runs/six_layer_joint_v2 --split test --limit 0
 ```
 
 Both commands default to `data/academic-pairs-v1`, batch size 8 and a budget of 192 new tokens. `--limit 0` evaluates every row. Results are written to `CHECKPOINT/evaluation/SPLIT-192/`:

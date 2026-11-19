@@ -1,7 +1,7 @@
 """A causal rewriting model with 2 LSTM, 2 Transformer and 2 Mamba blocks.
 
 The source is a prefix, followed by the target. Only target tokens contribute to
-the training loss. Embeddings and the tied vocabulary projection are not sequence
+the sentence loss. Embeddings and the tied vocabulary projection are not sequence
 blocks. This model has no additional BART encoder or decoder.
 """
 from dataclasses import asdict, dataclass, field
@@ -20,7 +20,18 @@ from .models import ReferenceMamba
 NEURAL_DEPTHS = {'medium': 4, 'deep': 6}
 CHECKPOINT_DEPTHS = ('joint', *NEURAL_DEPTHS)
 WORD_LAYERS = 2
-WORD_GUIDE_STAGES = {WORD_LAYERS: 0, NEURAL_DEPTHS['medium']: 1}
+FOUR_STAGE_LAYERS = (1, WORD_LAYERS, *NEURAL_DEPTHS.values())
+
+
+def word_boundary_guide(logits, rows, spans, text_mask):
+    """Scatter word edit probabilities to tokens and emphasize their local edges."""
+    edit = 1 - logits.softmax(-1)[:, 0]
+    weighted = spans * edit[:, None]
+    guide = edit.new_zeros(text_mask.shape).index_add(0, rows, weighted).clamp(max=1)
+    channels = guide.unsqueeze(1)
+    dilated = F.max_pool1d(channels, kernel_size=3, stride=1, padding=1)
+    eroded = -F.max_pool1d(-channels, kernel_size=3, stride=1, padding=1)
+    return torch.maximum(guide, (dilated - eroded).squeeze(1)) * text_mask
 
 
 @dataclass
@@ -37,12 +48,15 @@ class SixLayerConfig:
     eos_token_id: int = 2
     depth: str = 'deep'
     word_replacements: dict[str, list[str]] = field(default_factory=dict)
+    prediction_stages: int = 3  # Layout of joint checkpoints saved before explicit stage versioning.
 
     def __post_init__(self):
         if self.depth not in CHECKPOINT_DEPTHS:
             raise ValueError(f'Unknown checkpoint depth: {self.depth}')
         if (self.depth == 'joint') != bool(self.word_replacements):
             raise ValueError('Joint checkpoints require a word replacement vocabulary')
+        if self.prediction_stages not in (3, 4) or (self.prediction_stages == 4 and self.depth != 'joint'):
+            raise ValueError('Four prediction stages require a joint checkpoint')
         if min(self.vocab_size, self.d_model, self.attention_heads, self.ffn_dim, self.d_state) < 1:
             raise ValueError('Model dimensions must be positive')
         if self.d_model % self.attention_heads or self.max_positions < 2:
@@ -176,6 +190,9 @@ class SixLayerRewriter(nn.Module):
         joint = config.depth == 'joint'
         self.sentence_depths = tuple(NEURAL_DEPTHS) if joint else (config.depth,)
         self.active_layer_count = NEURAL_DEPTHS[self.sentence_depths[-1]]
+        self.prediction_stage_layers = (FOUR_STAGE_LAYERS[-config.prediction_stages:]
+                                        if joint else (self.active_layer_count,))
+        self.word_guide_channels = {layer: index for index, layer in enumerate(self.prediction_stage_layers[:-1])}
         for layer in islice(self.layers, self.active_layer_count, None):
             layer.requires_grad_(False)
         self.output_norm = nn.LayerNorm(config.d_model)
@@ -186,6 +203,11 @@ class SixLayerRewriter(nn.Module):
         self.word_fusion = (nn.Sequential(nn.LayerNorm(config.d_model),
                                          nn.Linear(config.d_model, config.d_model, bias=False))
                             if joint else None)
+        self.mid_predictions = (nn.ModuleDict({
+            str(layer): nn.Sequential(nn.Linear(config.d_model, config.d_model), nn.GELU(),
+                                      nn.Linear(config.d_model, config.d_model))
+            for layer in self.prediction_stage_layers
+        }) if config.prediction_stages == 4 else None)
         nn.init.normal_(self.token_embedding.weight, std=0.02)
         with torch.no_grad():
             self.token_embedding.weight[config.pad_token_id].zero_()
@@ -198,7 +220,13 @@ class SixLayerRewriter(nn.Module):
 
     def _project(self, hidden, depth):
         norm = self.medium_output_norm if depth == 'medium' and self.medium_output_norm is not None else self.output_norm
-        return F.linear(norm(hidden), self.token_embedding.weight)
+        projected = self._prediction_features(hidden, NEURAL_DEPTHS[depth])
+        return F.linear(norm(projected), self.token_embedding.weight)
+
+    def _prediction_features(self, hidden, layer):
+        if self.mid_predictions is None:
+            return hidden
+        return hidden + self.mid_predictions[str(layer)](hidden)
 
     def _embed_sequence(self, tokens, mask, segments=None):
         if tokens.size(1) > self.config.max_positions:
@@ -215,8 +243,8 @@ class SixLayerRewriter(nn.Module):
         return hidden + strength.unsqueeze(-1) * self.word_fusion(hidden)
 
     def _guide_stage(self, hidden, layer_index, word_guidance):
-        if word_guidance is not None and layer_index in WORD_GUIDE_STAGES:
-            return self._fuse_word_features(hidden, word_guidance[..., WORD_GUIDE_STAGES[layer_index]])
+        if word_guidance is not None and layer_index in self.word_guide_channels:
+            return self._fuse_word_features(hidden, word_guidance[..., self.word_guide_channels[layer_index]])
         return hidden
 
     def _encode(self, hidden, mask, start, stop, word_guidance=None):
@@ -226,9 +254,10 @@ class SixLayerRewriter(nn.Module):
         return hidden
 
     def _validate_guidance(self, tokens, word_guidance):
+        expected = (*tokens.shape, len(self.word_guide_channels))
         if word_guidance is not None and (
-                self.word_fusion is None or word_guidance.shape != (*tokens.shape, 2)):
-            raise ValueError('Word guidance needs two scores for each input token of a joint checkpoint')
+                self.word_fusion is None or word_guidance.shape != expected):
+            raise ValueError('Word guidance needs one score per input token and stage transition')
 
     def sequence_logits(self, tokens, mask, segments=None, *, depth=None, word_guidance=None):
         depth = self._resolve_depth(depth)
@@ -238,7 +267,7 @@ class SixLayerRewriter(nn.Module):
         return self._project(hidden, depth)
 
     def word_logits(self, tokens, mask, segments, focus, allowed, *, refine=True):
-        """Predict local replacements at two stages with the same word module."""
+        """Read the separate word windows used by earlier joint checkpoints."""
         if self.word_head is None:
             raise ValueError('Word prediction requires a joint checkpoint')
         hidden = self._encode(self._embed_sequence(tokens, mask, segments), mask, 0, WORD_LAYERS)
@@ -257,6 +286,34 @@ class SixLayerRewriter(nn.Module):
         medium = self._encode(hidden, mask, WORD_LAYERS, NEURAL_DEPTHS['medium'])
         return shallow, scores(medium)
 
+    def source_word_stages(self, tokens, mask, rows, spans, allowed, text_mask, *, shallow=False):
+        """Cascade word readouts and feedback over the same source backbone."""
+        if self.mid_predictions is None:
+            raise ValueError('Source word stages require a four-stage checkpoint')
+        hidden = self._embed_sequence(tokens, mask)
+        positions = torch.arange(tokens.size(1), device=tokens.device)
+        focus = (spans.long() * positions).amax(dim=1)
+        context_end = mask.long().sum(1)[rows] - 1
+        readout_positions = torch.stack((focus, context_end), dim=1)
+        layers = self.prediction_stage_layers[:-1]
+        if shallow:
+            layers = layers[:2]
+        outputs = []
+        guides = []
+        start = 0
+        for stop in layers:
+            hidden = self._encode(hidden, mask, start, stop)
+            local = hidden[rows[:, None], readout_positions]
+            features = self._prediction_features(local, stop).flatten(1)
+            logits = self.word_head(features).masked_fill(~allowed, -torch.inf)
+            guide = word_boundary_guide(logits, rows, spans, text_mask)
+            outputs.append(logits)
+            guides.append(guide)
+            if stop != layers[-1]:
+                hidden = self._fuse_word_features(hidden, guide)
+            start = stop
+        return outputs, torch.stack(guides, dim=-1)
+
     def _labeled_outputs(self, input_ids, attention_mask, labels, depths, word_guidance):
         self._validate_guidance(input_ids, word_guidance)
         sources = [row[mask.bool()] for row, mask in zip(input_ids, attention_mask)]
@@ -268,7 +325,8 @@ class SixLayerRewriter(nn.Module):
         mask = torch.zeros_like(tokens)
         segments = torch.zeros_like(tokens)
         expected = tokens.new_full(tokens.shape, -100)
-        guidance = (word_guidance.new_zeros((*tokens.shape, 2)) if word_guidance is not None else None)
+        guidance = (word_guidance.new_zeros((*tokens.shape, word_guidance.size(-1)))
+                    if word_guidance is not None else None)
         for i, (source, target) in enumerate(zip(sources, targets)):
             boundary, end = len(source), lengths[i]
             tokens[i, :end] = torch.cat([source, target])

@@ -45,7 +45,7 @@ def batch(rows,tokenizer,device,max_length,word_task=None):
     inputs = {'input_ids':x['input_ids'].to(device),'attention_mask':x['attention_mask'].to(device),
               'labels':y.to(device)}
     if word_task:
-        inputs['word_guidance'] = word_task.guidance(sources, x['offset_mapping'])
+        inputs['word_guidance'] = word_task.guidance(sources, x)
     return inputs
 
 def run(args):
@@ -104,7 +104,8 @@ def run(args):
             attention_heads=args.attention_heads,ffn_dim=64 if args.tiny else args.ffn_dim,
             dropout=0. if args.tiny else args.dropout,max_positions=2*args.max_length+2,
             pad_token_id=tokenizer.pad_token_id,bos_token_id=tokenizer.bos_token_id,
-            eos_token_id=tokenizer.eos_token_id,depth=depth,word_replacements=replacements)
+            eos_token_id=tokenizer.eos_token_id,depth=depth,word_replacements=replacements,
+            prediction_stages=4 if depth == 'joint' else 3)
     tokenizer.padding_side='right'; tokenizer.save_pretrained(out/'tokenizer')
     if 2*args.max_length>six_config.max_positions: raise ValueError('Continuation max-length exceeds saved position capacity')
     six_config.save(out/'six_layer_config.json');model=SixLayerRewriter(six_config)
@@ -130,9 +131,12 @@ def run(args):
         loss = sum(sentence.values()) / len(sentence)
         terms = {f'{name}_cross_entropy': value for name, value in sentence.items()}
         if word_task:
-            word_loss = word_task.loss(words)
+            word_stages = word_task.losses(words)
+            word_loss = torch.stack(word_stages).mean()
             loss = loss + args.word_loss_weight * word_loss
             terms['word_cross_entropy'] = word_loss
+            terms.update({f'p{index}_word_cross_entropy': value
+                          for index, value in enumerate(word_stages, start=1)})
         return loss, terms
 
     @torch.no_grad()
@@ -241,6 +245,7 @@ def run(args):
     if word_task:
         result.update(word_training_pairs=len(word_rows), word_training_data_sha256=word_hash,
                       rewrite_modes=['shallow', *model.sentence_depths],
+                      prediction_stage_layers=list(model.prediction_stage_layers),
                       objective_weights={'shallow': args.word_loss_weight, 'medium': .5, 'deep': .5},
                       checkpoint_selection_metric='Mean of medium and deep validation cross-entropies')
     manifest=Path(args.data)/'manifest.json'

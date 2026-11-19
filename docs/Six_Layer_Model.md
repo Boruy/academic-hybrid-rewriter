@@ -13,11 +13,11 @@ The model contains exactly **six sequence layers**:
 | 5 | Mamba block | Selective state-space sequence mixing |
 | 6 | Mamba block | Final selective sequence mixing |
 
-Each block has normalization and a residual path. Token, position and source/target segment embeddings precede the blocks. Joint training adds an output after the fourth block and two residual fusions driven by the single-word edit module. The medium and deep outputs use separate normalization with a shared vocabulary projection tied to the embeddings. The shallow output uses the word prediction head on the shared LSTM features. There is no pretrained encoder or decoder.
+Each block has normalization and a residual path. Token, position and source/target segment embeddings precede the blocks. The joint model has prediction projections after blocks 1, 2, 4 and 6. A shared word edit head and residual fusion guide the three transitions. The medium and deep outputs use separate normalization with a shared vocabulary projection tied to the embeddings. The shallow output uses the word prediction after block 2. There is no pretrained encoder or decoder.
 
 ## Conditional generation
 
-Sentence training uses `[BOS] source [EOS] [BOS] target [EOS]`. Only target tokens contribute to shifted cross-entropy at the fourth and sixth blocks. The word loss comes from a separate batch of contextual word labels in the same optimizer step. Source-only word guidance is fused before the Transformer and Mamba blocks. Attention is causal, and the LSTM is unidirectional. Right padding is masked from the loss and recurrent state updates.
+Sentence training uses `[BOS] source [EOS] [BOS] target [EOS]`. Only target tokens contribute to shifted cross-entropy at the fourth and sixth blocks. The word loss comes from a separate batch of contextual word labels in the same optimizer step. Source-only word guidance is fused before the second LSTM, the Transformers and the Mamba blocks. Attention is causal, and the LSTM is unidirectional. Right padding is masked from the loss and recurrent state updates.
 
 Generation consumes the source prefix and greedily predicts target tokens. LSTM and Mamba states are cached; Transformer blocks retain their past normalized states. The returned sequence begins with an initial BOS marker that is excluded from generated-token counts. Sampling and beam search are not implemented.
 
@@ -38,8 +38,8 @@ The [dataset card](Dataset_Card.md) documents real-data provenance and preserved
 Run commands yourself from the repository root. Project code is not executed by the agent unless explicitly requested.
 
 ```powershell
-.\.venv\Scripts\python.exe scripts/train_six_layer.py --output runs/six_layer_joint_v1 --print-command
-.\.venv\Scripts\python.exe scripts/train_six_layer.py --output runs/six_layer_joint_v1
+.\.venv\Scripts\python.exe scripts/train_six_layer.py --output runs/six_layer_joint_v2 --print-command
+.\.venv\Scripts\python.exe scripts/train_six_layer.py --output runs/six_layer_joint_v2
 ```
 
 The launcher reads `configs/six_layer_experiment.json` and checks the generator and data fingerprints before training. It uses width 192, four attention heads, feed-forward width 768, dropout 0.1, batch 16, LR 3e-4, seed 42, source/target limits of 192 tokens and up to 2,000 joint updates. Sentence batches are drawn from shuffled epochs and word batches are sampled from the training word corpus. Sentence truncation is rejected.
@@ -51,8 +51,8 @@ Use a new output directory for another run. `--init-checkpoint` on `academic_rew
 ## Evaluate the entire split
 
 ```powershell
-.\.venv\Scripts\python.exe -m academic_rewriter.test --checkpoint runs/six_layer_joint_v1 --split validation --batch-size 8 --max-new-tokens 192 --limit 0
-.\.venv\Scripts\python.exe -m academic_rewriter.test --checkpoint runs/six_layer_joint_v1 --split test --batch-size 8 --max-new-tokens 192 --limit 0
+.\.venv\Scripts\python.exe -m academic_rewriter.test --checkpoint runs/six_layer_joint_v2 --split validation --batch-size 8 --max-new-tokens 192 --limit 0
+.\.venv\Scripts\python.exe -m academic_rewriter.test --checkpoint runs/six_layer_joint_v2 --split test --batch-size 8 --max-new-tokens 192 --limit 0
 ```
 
 The default data directory is `data/academic-pairs-v1`. A zero limit evaluates every row: 98 validation cases or 87 test cases. Only completed checkpoints with `result.json`, `six_layer_config.json`, `tokenizer/` and `weights.pt` can be evaluated.

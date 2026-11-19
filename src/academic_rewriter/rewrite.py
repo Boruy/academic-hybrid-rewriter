@@ -55,7 +55,7 @@ def rewrite_neural(text, depth, checkpoint, device=None, max_new_tokens=None):
         raise ValueError(f'Generation budget must be between 1 and {remaining} tokens for this input')
 
     with torch.no_grad():
-        guidance = word_task.guidance([text], inputs['offset_mapping']) if word_task else None
+        guidance = word_task.guidance([text], inputs) if word_task else None
         generated = model.generate(input_ids=inputs['input_ids'].to(device),
                                    attention_mask=inputs['attention_mask'].to(device), max_new_tokens=budget,
                                    depth=depth, word_guidance=guidance)[0]

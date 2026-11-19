@@ -1,29 +1,29 @@
 # Three rewrite levels
 
-Train the shallow, medium and deep outputs in one run and select the output mode at inference. The six sequence blocks share embeddings and reuse the earlier representations. Word predictions from each earlier stage guide the next stage, following the pattern of a staged segmentation network with intermediate supervision and boundary-guided feature refinement.
+Train the shallow, medium and deep outputs in one run and select the output mode at inference. The four internal prediction stages share the six sequence blocks and follow the supplied segmentation diagram's cascade. Each of the first three predictions supplies a word boundary guide for the following stage.
 
 | Level | Model | Scope |
 | --- | --- | --- |
-| Shallow | Shared LSTM blocks and the single-word edit module | Predicts a replacement or retain for each eligible word. Each replacement preserves the rest of the text, including punctuation and spacing. |
-| Medium | Adds two Transformer blocks | Generates a revised sentence after fusing the first word guide into the source features. |
-| Deep | Adds two Mamba blocks | Generates a revised sentence after fusing the refined word guide into the source features. |
+| Shallow | P2 after the second LSTM | Predicts a replacement or retain for each eligible word after using P1 to locate potential edits. Each replacement preserves the surrounding text, including punctuation and spacing. |
+| Medium | P3 after the two Transformer blocks | Generates a revised sentence using the first two word guides. P3 also emits a source word score for the final guide. |
+| Deep | P4 after the two Mamba blocks | Generates a revised sentence using all three word guides. |
 
 ## Architecture and loss
 
 ```mermaid
 flowchart LR
-    S[Source tokens] --> L[Two LSTM blocks]
-    L --> P1[P1 single-word output]
-    L --> F2[Word-guided fusion]
-    P1 --> E1[First word boundary guide] --> F2
-    F2 --> T[Two Transformer blocks] --> P2[P2 medium sentence output]
-    T --> E2[Refined word boundary guide] --> F3[Word-guided fusion]
-    T --> F3 --> M[Two Mamba blocks] --> P3[P3 deep sentence output]
+    S[Source tokens] --> L1[First LSTM block] --> P1[P1 coarse word prediction]
+    P1 --> E1[E1 word boundary guide] --> F2[Word-guided fusion]
+    L1 --> F2 --> L2[Second LSTM block] --> P2[P2 shallow word output]
+    P2 --> E2[E2 word boundary guide] --> F3[Word-guided fusion]
+    L2 --> F3 --> T[Two Transformer blocks] --> P3[P3 medium sentence and word scores]
+    P3 --> E3[E3 word boundary guide] --> F4[Word-guided fusion]
+    T --> F4 --> M[Two Mamba blocks] --> P4[P4 deep sentence output]
 ```
 
-The single-word module takes the place of CDEA. It learns from contextual replacement and retain labels, produces a probability of editing an eligible source word and projects the scores onto the source subwords. A one-dimensional dilation minus erosion emphasizes local word boundaries. The model uses those scores to reweight source features before the next pair of blocks. The second guide comes from running the same word prediction head on the intermediate word contexts after Transformer refinement. Both guides are computed from source text during training and inference. Reference text provides supervision only.
+Each prediction has a `MidFPred` projection with two linear layers and GELU. The shared single-word edit module takes the place of CDEA. At P1, P2 and P3 it reads the original word span and its context from the current source features, then predicts a replacement or retention. It places the probability of a change on the source subwords. One-dimensional dilation minus erosion highlights their boundaries. The resulting map reweights source features before the next stage. P3's word scores come from the same stage features as its sentence prediction. The guides use only the input sentence during training and inference.
 
-Each optimizer update uses a batch of [sentence pairs](../data/academic-pairs-v1/README.md) and a batch of [word pairs](../data/word-formality-v1/README.md). The default loss is `0.5 × medium CE + 0.5 × deep CE + 0.25 × word CE`. Sentence cross-entropies supervise the reference tokens at the two sentence outputs. Word cross-entropy averages the early and refined replacement objectives. The mean medium and deep cross-entropy on the real validation split selects the checkpoint. Word quality is measured separately on independently reviewed cases when available.
+Each optimizer update uses a batch of [sentence pairs](../data/academic-pairs-v1/README.md) and a batch of [word pairs](../data/word-formality-v1/README.md). The default loss is `0.5 × CE(P3 sentence) + 0.5 × CE(P4 sentence) + 0.25 × mean(CE(P1 word), CE(P2 word), CE(P3 word))`. The sentence objectives supervise reference output tokens. The word objectives supervise the labeled replacement or retain decision at each word readout. The logs record all three word losses. The mean medium and deep cross-entropy on real validation data selects the checkpoint.
 
 ## Train once and select a mode
 
@@ -31,7 +31,7 @@ Run from the repository root in PowerShell. Use a fresh checkpoint directory for
 
 ```powershell
 $python = '.\.venv\Scripts\python.exe'
-$checkpoint = 'runs/six_layer_joint_v1'
+$checkpoint = 'runs/six_layer_joint_v2'
 $sentence = 'The proposed method gets better results than the baseline.'
 & $python scripts/train_six_layer.py --output $checkpoint
 foreach ($depth in 'shallow', 'medium', 'deep') {
@@ -39,7 +39,7 @@ foreach ($depth in 'shallow', 'medium', 'deep') {
 }
 ```
 
-Joint checkpoints record their replacement vocabulary in `six_layer_config.json`. Earlier single-depth checkpoints still load in their original mode, and standalone word artifacts still load with `--lexical-model`. For medium and deep, the single-sentence command returns the source if the candidate is empty, lacks an end token, or changes the numeric strings. The shallow output records each edited word and its original character offsets.
+Joint checkpoints record the stage layout and replacement vocabulary in `six_layer_config.json`. Earlier joint and single-depth checkpoints load with their saved layout, and standalone word artifacts load with `--lexical-model`. Start a fresh run to train the four-stage layout. For medium and deep, the single-sentence command returns the source if the candidate is empty, lacks an end token, or changes the numeric strings. The shallow output records each edited word and its original character offsets and retains words outside the input token budget.
 
 ## Test one checkpoint across all three modes
 
@@ -48,7 +48,7 @@ Joint checkpoints record their replacement vocabulary in `six_layer_config.json`
 & $python -m unittest discover -s tests -p test_joint_rewriter.py -v
 ```
 
-The test command evaluates all 87 real test pairs by default. Use `--split validation` for the 98 validation pairs. The CSV aligns the original text, human reference and all three predictions on each row. JSONL includes shallow edits and separate generation diagnostics. `metrics.json` reports metrics by mode and a copy-input baseline. The batch test exports raw neural generations for diagnostics. The existing real splits have already been inspected and support exploratory comparison.
+The test command evaluates all 87 real test pairs by default. Use `--split validation` for the 98 validation pairs. The CSV aligns the original text, human reference and all three predictions on each row. JSONL includes shallow edits and separate generation diagnostics. `metrics.json` reports metrics by mode, a copy-input baseline and the cumulative block counts of the prediction stages (`[1, 2, 4, 6]` for the new model). The batch test exports raw neural generations for diagnostics. The existing real splits have already been inspected and support exploratory comparison.
 
 To score shallow replacement decisions, pass `--word-test .cache/reviewed_word_pairs.jsonl` with distinct, independently reviewed real cases. Each row needs `source` and `target`. For retain cases, include `focus` and, for repeated words, `focus_start`. Report focused replacement accuracy, unnecessary edit rate and exact sentence accuracy. The included word corpus is training only.
 

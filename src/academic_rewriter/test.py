@@ -140,6 +140,7 @@ def run(args):
         shallow_metrics.update(active_sequence_layers=WORD_LAYERS,
                                edit_count=sum(row['edit_count'] for row in shallow_predictions))
         metrics = dict(n=len(rows), modes=dict(copy_baseline=copy, shallow=shallow_metrics, **by_depth),
+                       prediction_stage_layers=list(model.prediction_stage_layers),
                        word_test=evaluate_lexical(word_task, word_rows) if word_rows is not None else None)
     else:
         metrics = by_depth[depths[0]]

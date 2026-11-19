@@ -6,6 +6,7 @@ import torch
 from torch.nn import functional as F
 
 from .lexical import LexicalEdit, _TOKEN, _WORD, _example, _replace_case, apply_word_edits
+from .six_layer import word_boundary_guide
 
 
 def word_replacements(rows):
@@ -30,6 +31,13 @@ class WordContext:
     label: int | None = None
 
 
+def align_spans(offsets, starts, ends):
+    token_start, token_end = offsets.unbind(-1)
+    aligned = (token_start < ends) & (token_end > starts) & (token_end > token_start)
+    complete = (aligned & (token_start <= starts)).any(-1) & (aligned & (token_end >= ends)).any(-1)
+    return aligned, complete
+
+
 class WordTask:
     def __init__(self, model, tokenizer, device, max_length):
         if model.word_head is None:
@@ -38,6 +46,7 @@ class WordTask:
         self.tokenizer = tokenizer
         self.device = device
         self.max_length = min(max_length, model.config.max_positions)
+        self.four_stage = model.config.prediction_stages == 4
         self.labels = model.config.word_labels
         self.label_ids = {word: index for index, word in enumerate(self.labels)}
         self.choices = {
@@ -47,6 +56,16 @@ class WordTask:
 
     def _context(self, sentence, span, label=None):
         start, end = span.span()
+        choices = self.choices.get(span.group().lower(), (0,))
+        if self.four_stage:
+            encoded = self.tokenizer(sentence, truncation=True, max_length=self.max_length,
+                                     return_offsets_mapping=True)
+            aligned, complete = align_spans(torch.tensor(encoded['offset_mapping']), start, end)
+            if not complete.item():
+                raise ValueError(f'Word {span.group()!r} is outside the input token budget')
+            positions = aligned.nonzero().flatten().tolist()
+            return WordContext(encoded['input_ids'], positions[0], positions[-1] + 1, choices, label)
+
         left, word, right = self.tokenizer([sentence[:start], span.group(), sentence[end:]],
                                            add_special_tokens=False)['input_ids']
         remaining = self.max_length - len(word) - 2  # Reserve BOS and EOS.
@@ -58,8 +77,7 @@ class WordTask:
         focus_start = 1 + left_count
         tokens = [self.model.config.bos_token_id, *left[len(left) - left_count:], *word,
                   *right[:right_count], self.model.config.eos_token_id]
-        return WordContext(tokens, focus_start, focus_start + len(word),
-                           self.choices.get(span.group().lower(), (0,)), label)
+        return WordContext(tokens, focus_start, focus_start + len(word), choices, label)
 
     def training_examples(self, rows):
         examples = []
@@ -73,25 +91,36 @@ class WordTask:
             examples.append(context)
         return examples
 
+    def _allowed(self, choices):
+        allowed = torch.zeros((len(choices), len(self.labels)), dtype=torch.bool)
+        for index, options in enumerate(choices):
+            allowed[index, list(options)] = True
+        return allowed.to(self.device)
+
     def _logits(self, examples, *, refine=True):
         shape = (len(examples), max(len(example.tokens) for example in examples))
         tokens = torch.full(shape, self.model.config.pad_token_id, dtype=torch.long)
         mask = torch.zeros(shape, dtype=torch.long)
         segments = torch.zeros_like(mask)
-        allowed = torch.zeros(len(examples), len(self.labels), dtype=torch.bool)
         for index, example in enumerate(examples):
             length = len(example.tokens)
             tokens[index, :length] = torch.tensor(example.tokens)
             mask[index, :length] = 1
             segments[index, example.focus_start:example.focus_end] = 1
-            allowed[index, list(example.choices)] = True
+        allowed = self._allowed([example.choices for example in examples])
+        tokens, mask, segments = (value.to(self.device) for value in (tokens, mask, segments))
+        if self.four_stage:
+            rows = torch.arange(len(examples), device=self.device)
+            positions = torch.arange(tokens.size(1), device=self.device)
+            text_mask = (positions > 0) & (positions < mask.sum(1, keepdim=True) - 1)
+            logits, _ = self.model.source_word_stages(tokens, mask, rows, segments.bool(), allowed, text_mask)
+            return logits
         focus = torch.tensor([example.focus_end - 1 for example in examples], device=self.device)
-        return self.model.word_logits(tokens.to(self.device), mask.to(self.device),
-                                      segments.to(self.device), focus, allowed.to(self.device), refine=refine)
+        return self.model.word_logits(tokens, mask, segments, focus, allowed, refine=refine)
 
-    def loss(self, examples):
+    def losses(self, examples):
         labels = torch.tensor([example.label for example in examples], device=self.device)
-        return torch.stack([F.cross_entropy(logits, labels) for logits in self._logits(examples)]).mean()
+        return [F.cross_entropy(logits, labels) for logits in self._logits(examples)]
 
     def _candidates(self, texts):
         for index, text in enumerate(texts):
@@ -101,41 +130,59 @@ class WordTask:
                         and (source.islower() or source.istitle())):
                     yield index, span
 
-    def guidance(self, texts, offsets):
-        """Align source-only edit scores to subwords and highlight their local boundaries."""
+    def _source_predictions(self, texts, encoding, *, shallow=False):
+        offsets = encoding['offset_mapping']
         candidates = list(self._candidates(texts))
         if not candidates:
-            return None
+            return [], [], None
         rows = torch.tensor([index for index, _ in candidates], dtype=torch.long)
         starts = torch.tensor([span.start() for _, span in candidates]).unsqueeze(-1)
         ends = torch.tensor([span.end() for _, span in candidates]).unsqueeze(-1)
-        token_starts, token_ends = offsets[rows].unbind(-1)
-        aligned = (token_starts < ends) & (token_ends > starts) & (token_ends > token_starts)
+        aligned, complete = align_spans(offsets[rows], starts, ends)
+        text_mask = (offsets[..., 1] > offsets[..., 0]).to(self.device)
+        if self.four_stage:
+            candidates = [candidates[index] for index in complete.nonzero().flatten().tolist()]
+            if not candidates:
+                return [], [], None
+            allowed = self._allowed([self.choices[span.group().lower()] for _, span in candidates])
+            logits, guides = self.model.source_word_stages(
+                encoding['input_ids'].to(self.device), encoding['attention_mask'].to(self.device),
+                rows[complete].to(self.device), aligned[complete].to(self.device), allowed, text_mask,
+                shallow=shallow)
+            return candidates, logits, guides
+
         examples = [self._context(texts[index], span) for index, span in candidates]
-        stages = self._logits(examples)
-        edit_scores = torch.stack([1 - logits.softmax(-1)[:, 0] for logits in stages], dim=-1)
-        weighted = aligned.to(self.device).unsqueeze(-1) * edit_scores.unsqueeze(1)
-        guide = edit_scores.new_zeros((*offsets.shape[:2], len(stages)))
-        guide = guide.index_add(0, rows.to(self.device), weighted).clamp(max=1)
-        channels = guide.transpose(1, 2)
-        dilated = F.max_pool1d(channels, kernel_size=3, stride=1, padding=1)
-        eroded = -F.max_pool1d(-channels, kernel_size=3, stride=1, padding=1)
-        guide = torch.maximum(guide, (dilated - eroded).transpose(1, 2))
-        real_tokens = (offsets[..., 1] > offsets[..., 0]).to(self.device).unsqueeze(-1)
-        return guide * real_tokens
+        logits = self._logits(examples)
+        rows, aligned = rows.to(self.device), aligned.to(self.device)
+        guides = torch.stack([word_boundary_guide(output, rows, aligned, text_mask) for output in logits], dim=-1)
+        return candidates, logits, guides
+
+    def guidance(self, texts, encoding):
+        """Align source-only edit scores to subwords and highlight their local boundaries."""
+        return self._source_predictions(texts, encoding)[2]
 
     @torch.no_grad()
     def rewrite_many(self, texts):
+        if not texts:
+            return []
         edits = [[] for _ in texts]
-        candidates = list(self._candidates(texts))
-        for start in range(0, len(candidates), 32):
-            group = candidates[start:start + 32]
-            examples = [self._context(texts[index], span) for index, span in group]
-            (shallow,) = self._logits(examples, refine=False)
-            for (index, span), prediction in zip(group, shallow.argmax(-1).tolist(), strict=True):
-                if prediction:
-                    target = _replace_case(span.group(), self.labels[prediction])
-                    edits[index].append(LexicalEdit(span.start(), span.end(), span.group(), target))
+        if self.four_stage:
+            encoding = self.tokenizer(texts, padding=True, truncation=True, max_length=self.max_length,
+                                      return_tensors='pt', return_offsets_mapping=True)
+            candidates, outputs, _ = self._source_predictions(texts, encoding, shallow=True)
+            predictions = outputs[-1].argmax(-1).tolist() if outputs else []
+        else:
+            candidates = list(self._candidates(texts))
+            predictions = []
+            for start in range(0, len(candidates), 32):
+                group = candidates[start:start + 32]
+                examples = [self._context(texts[index], span) for index, span in group]
+                (shallow,) = self._logits(examples, refine=False)
+                predictions.extend(shallow.argmax(-1).tolist())
+        for (index, span), prediction in zip(candidates, predictions, strict=True):
+            if prediction:
+                target = _replace_case(span.group(), self.labels[prediction])
+                edits[index].append(LexicalEdit(span.start(), span.end(), span.group(), target))
         return [(apply_word_edits(text, changes), changes)
                 for text, changes in zip(texts, edits, strict=True)]
 
