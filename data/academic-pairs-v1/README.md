@@ -19,5 +19,5 @@ All generated examples are training-only.
 `manifest.json` records composition, frame usage, the generator code hash and exact
 original/prepared split hashes. The existing real data retains the attribution in
 [THIRD_PARTY_NOTICES.md](../../THIRD_PARTY_NOTICES.md). No new paper text is included.
-See [the six-layer protocol](../../docs/Six_Layer_Model.md) and
+See [LexiFAR model and training](../../docs/LexiFAR_Training.md) and
 [the generator](../../src/academic_rewriter/synthetic.py).

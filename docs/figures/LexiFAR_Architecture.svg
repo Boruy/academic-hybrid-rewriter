@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="1860" height="1175" viewBox="0 0 1860 1175"
      role="img" aria-labelledby="diagram-title diagram-description">
-  <title id="diagram-title">Four-stage academic rewriter</title>
+  <title id="diagram-title">LexiFAR architecture</title>
   <desc id="diagram-description">An English sentence is tokenized and runs through two sequential LSTM stages,
     two Transformer blocks and two Mamba blocks. Each of the four stages has a MidFPred projection.
     P1 locates word edits, P2 predicts single-word changes, and P3 adds an auxiliary sentence loss and
@@ -67,7 +67,7 @@
   </style>
 
   <rect width="1860" height="1175" fill="#f7f9fc" />
-  <text x="58" y="83" class="title">Four-stage academic rewriter</text>
+  <text x="58" y="83" class="title">LexiFAR architecture</text>
   <text x="60" y="122" class="subtitle">Four supervised stages, one fused sentence output</text>
   <g aria-label="Legend">
     <path class="feature-arrow" d="M1040 81H1076" />

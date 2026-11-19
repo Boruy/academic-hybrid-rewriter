@@ -1,6 +1,6 @@
-# Four stages and one final rewrite
+# LexiFAR architecture
 
-Train the four stages in one run. The first three predictions provide word feedback and auxiliary supervision. The final prediction combines features from all four stages and returns one rewritten sentence.
+LexiFAR trains all four stages jointly. The first three predictions provide word feedback and auxiliary supervision. The final prediction combines features from all four stages and returns one rewritten sentence.
 
 | Prediction | Model | Role |
 | --- | --- | --- |
@@ -11,9 +11,9 @@ Train the four stages in one run. The first three predictions provide word feedb
 
 ## Architecture and loss
 
-![Four-stage word feedback and feature fusion into one sentence](figures/four_stage_rewriter.svg)
+![LexiFAR architecture with word feedback and feature fusion into one sentence](figures/LexiFAR_Architecture.svg)
 
-[Open the model diagram as an SVG](figures/four_stage_rewriter.svg).
+[Open the LexiFAR architecture diagram as an SVG](figures/LexiFAR_Architecture.svg).
 
 Each stage has a `MidFPred` projection with two linear layers and GELU. The shared single-word edit module takes the place of CDEA. At P1, P2 and P3 it reads a word span and its context from the current source features. It projects edit probabilities onto the source subwords and uses one-dimensional dilation minus erosion to highlight boundaries. Each guide reweights source features before the next stage. The guides use only the input sentence during training and inference.
 

@@ -1,10 +1,10 @@
-# Six-layer Academic Rewriter
+# LexiFAR
 
 [Project overview in Chinese](docs/Project_Overview_ZH.md)
 
-The [four-stage model](docs/Three_Level_Model.md) uses a shared word edit module for its stage transitions. It fuses features from all four stages into one final rewritten sentence.
+**LexiFAR** (Lexically Guided Feature Fusion for Academic Rewriting) revises English research sentences. A shared word edit module guides its four stages, and their features fuse into a single rewritten sentence. See the [LexiFAR architecture](docs/LexiFAR_Architecture.md).
 
-An academic text revision model with exactly **2 LSTM + 2 Transformer + 2 Mamba** sequence blocks. The model trains from scratch with a training-only tokenizer. Architecture and commands are documented in [Six_Layer_Model.md](docs/Six_Layer_Model.md).
+The model has **2 LSTM + 2 Transformer + 2 Mamba** sequence blocks and trains from scratch with a training-only tokenizer. See [LexiFAR model and training](docs/LexiFAR_Training.md) for the layer configuration and commands.
 
 This repository contains the datasets and their provenance, the six-layer model, training and full-split evaluation code, and the supporting configuration and checks. Checkpoints, prediction files and generated reports stay local in ignored directories. Historical baseline implementations, presentations and report pipelines have been removed.
 

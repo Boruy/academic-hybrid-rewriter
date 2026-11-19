@@ -1,6 +1,6 @@
-# Six-layer academic rewriter
+# LexiFAR model and training
 
-See the [four-stage architecture](Three_Level_Model.md) for the word feedback, final fusion and single-checkpoint commands.
+See the [LexiFAR architecture](LexiFAR_Architecture.md) for the four stages, word feedback and final fusion.
 
 The model contains exactly **six sequence layers**:
 
