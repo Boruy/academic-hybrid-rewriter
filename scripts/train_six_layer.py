@@ -13,7 +13,8 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--config', default='configs/six_layer_experiment.json')
     parser.add_argument('--output', help='New checkpoint directory; existing weights are protected')
-    parser.add_argument('--depth', choices=['medium', 'deep'], help='Choose the active neural layers')
+    parser.add_argument('--depth', choices=['joint', 'medium', 'deep'],
+                        help='Default is joint; medium and deep reproduce legacy single-output runs')
     parser.add_argument('--print-command', action='store_true')
     args = parser.parse_args()
     config = json.loads((ROOT/args.config).read_text(encoding='utf8'))
@@ -36,6 +37,10 @@ def main():
     settings = dict(config['settings'], model=config['model'], data=config['data'], output=config['output'])
     if args.depth:
         settings['depth'] = args.depth
+    if settings.get('depth', 'joint') == 'joint' and 'word_data_sha256' in config:
+        word_path = ROOT/settings['word_data']
+        if hashlib.sha256(word_path.read_bytes()).hexdigest() != config['word_data_sha256']:
+            raise ValueError('Word training fingerprint changed; use a new versioned study')
     command = [sys.executable, '-m', 'academic_rewriter.run']
     for key, value in settings.items():
         flag = '--'+key.replace('_', '-')

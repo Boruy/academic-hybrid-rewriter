@@ -84,7 +84,7 @@ class SixLayerTests(unittest.TestCase):
                                      target='we examined "ten samples",\nthen compared them.'))
                 (data/(split+'.jsonl')).write_text(''.join(json.dumps(row)+'\n' for row in rows), encoding='utf8')
             output = root/'run'
-            settings = ['--model', 'six_layer', '--tiny', '--device', 'cpu', '--data', str(data),
+            settings = ['--model', 'six_layer', '--depth', 'deep', '--tiny', '--device', 'cpu', '--data', str(data),
                         '--steps', '2', '--batch-size', '1', '--max-length', '16', '--eval-every', '1',
                         '--checkpoint-selection', 'best-validation', '--reject-truncation']
             with contextlib.redirect_stdout(io.StringIO()):

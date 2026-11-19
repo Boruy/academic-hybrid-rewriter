@@ -1,8 +1,8 @@
 # Single-word academic formalization v1
 
-`train.jsonl` contains 76 controlled examples for the shallow word module. It
-has 56 one-word replacements and 20 examples marked to retain a word, covering
-12 input word forms. Codex authored the sentences for this project using
+`train.jsonl` contains 76 controlled examples for the single-word module in
+the joint training run. It has 56 one-word replacements and 20 retain examples,
+covering 12 input word forms. Codex authored the sentences for this project using
 hypothetical research settings. The examples contain no extracted paper text
 and have no independent human annotations. All 76 examples are synthetic
 training data, marked `synthetic=true`, `human_verified=false` and `split=train`.

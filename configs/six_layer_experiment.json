@@ -1,11 +1,15 @@
 {
-  "study": "six-layer-synthetic-v1",
+  "study": "six-layer-joint-v1",
   "data": "data/academic-pairs-v1",
-  "output": "runs/six_layer_manual_v1",
+  "output": "runs/six_layer_joint_v1",
   "model": "six_layer",
   "layer_layout": ["lstm", "lstm", "transformer", "transformer", "mamba", "mamba"],
-  "initialization": "from scratch; byte-level BPE fitted to training text only",
+  "initialization": "from scratch; byte-level BPE fitted to sentence and word training text only",
+  "word_data_sha256": "d444de7f7e4497d57d22cb30c0af20848bb71332f3389bc7b27ffad9a8fdf752",
   "settings": {
+    "depth": "joint",
+    "word_data": "data/word-formality-v1/train.jsonl",
+    "word_loss_weight": 0.25,
     "d_model": 192,
     "attention_heads": 4,
     "ffn_dim": 768,

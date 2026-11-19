@@ -4,7 +4,9 @@ from pathlib import Path
 import torch
 from transformers import AutoTokenizer,PreTrainedTokenizerFast
 from tokenizers import Tokenizer,models,pre_tokenizers,trainers,processors,decoders
-from .six_layer import NEURAL_DEPTHS, SixLayerConfig, SixLayerRewriter
+from .joint_words import WordTask, word_replacements
+from .lexical import read_lexical_training
+from .six_layer import CHECKPOINT_DEPTHS, SixLayerConfig, SixLayerRewriter
 
 def read_rows(path): return [json.loads(s) for s in Path(path).read_text(encoding='utf8').splitlines() if s.strip()]
 
@@ -34,11 +36,17 @@ def build_subword_tokenizer(rows,out):
     result=PreTrainedTokenizerFast(tokenizer_object=tok,pad_token='[PAD]',bos_token='[BOS]',eos_token='[EOS]',unk_token='[UNK]')
     result.save_pretrained(out); return result
 
-def batch(rows,tokenizer,device,max_length):
-    x=tokenizer([r['source'] for r in rows],padding=True,truncation=True,max_length=max_length,return_tensors='pt')
+def batch(rows,tokenizer,device,max_length,word_task=None):
+    sources = [r['source'] for r in rows]
+    x=tokenizer(sources,padding=True,truncation=True,max_length=max_length,return_tensors='pt',
+                return_offsets_mapping=word_task is not None)
     y=tokenizer([r['target'] for r in rows],padding=True,truncation=True,max_length=max_length,return_tensors='pt')['input_ids']
     y[y==tokenizer.pad_token_id]=-100
-    return {'input_ids':x['input_ids'].to(device),'attention_mask':x['attention_mask'].to(device),'labels':y.to(device)}
+    inputs = {'input_ids':x['input_ids'].to(device),'attention_mask':x['attention_mask'].to(device),
+              'labels':y.to(device)}
+    if word_task:
+        inputs['word_guidance'] = word_task.guidance(sources, x['offset_mapping'])
+    return inputs
 
 def run(args):
     if args.lr is None:
@@ -51,6 +59,8 @@ def run(args):
         raise ValueError('plateau requires eval-every > 0 and 0 < min-lr <= lr')
     if args.early_stopping_patience < 0 or (args.early_stopping_patience and not args.eval_every):
         raise ValueError('early stopping requires a positive validation interval and nonnegative patience')
+    if not math.isfinite(args.word_loss_weight) or args.word_loss_weight <= 0:
+        raise ValueError('word-loss-weight must be finite and positive')
     torch.manual_seed(args.seed); random.seed(args.seed)
     if torch.cuda.is_available(): torch.cuda.manual_seed_all(args.seed)
     device=torch.device(args.device or ('cuda' if torch.cuda.is_available() else 'cpu'))
@@ -64,6 +74,8 @@ def run(args):
     (out/'run_args.json').write_text(json.dumps(vars(args),indent=2),encoding='utf8')
     all_train=read_rows(Path(args.data)/'train.jsonl'); validation=read_rows(Path(args.data)/'validation.jsonl')
     if not all_train or not validation: raise ValueError('Empty training or validation data')
+    if any(row.get('synthetic') or row.get('training_only') or row.get('split') == 'train' for row in validation):
+        raise ValueError('Sentence validation requires a nonsynthetic held-out split')
     train=all_train[:args.train_limit] if args.train_limit else all_train
     val=validation[:args.val_limit] if args.val_limit else validation
     parent=None
@@ -77,13 +89,22 @@ def run(args):
         six_config=SixLayerConfig.load(parent/'six_layer_config.json')
         if args.depth is not None and args.depth != six_config.depth:
             raise ValueError(f'Continuation requires the saved depth ({six_config.depth})')
-    else:
-        tokenizer=(build_tokenizer if args.tiny else build_subword_tokenizer)(all_train,out/'tokenizer')
+    depth = six_config.depth if parent else args.depth or 'joint'
+    word_rows = []
+    word_hash = None
+    replacements = {}
+    if depth == 'joint':
+        word_rows, word_hash = read_lexical_training(args.word_data)
+        replacements = word_replacements(word_rows)
+        if parent and replacements != six_config.word_replacements:
+            raise ValueError('Continuation requires the saved word replacement vocabulary')
+    if not parent:
+        tokenizer=(build_tokenizer if args.tiny else build_subword_tokenizer)(all_train + word_rows,out/'tokenizer')
         six_config=SixLayerConfig(vocab_size=len(tokenizer),d_model=32 if args.tiny else args.d_model,
             attention_heads=args.attention_heads,ffn_dim=64 if args.tiny else args.ffn_dim,
             dropout=0. if args.tiny else args.dropout,max_positions=2*args.max_length+2,
             pad_token_id=tokenizer.pad_token_id,bos_token_id=tokenizer.bos_token_id,
-            eos_token_id=tokenizer.eos_token_id,depth=args.depth or 'deep')
+            eos_token_id=tokenizer.eos_token_id,depth=depth,word_replacements=replacements)
     tokenizer.padding_side='right'; tokenizer.save_pretrained(out/'tokenizer')
     if 2*args.max_length>six_config.max_positions: raise ValueError('Continuation max-length exceeds saved position capacity')
     six_config.save(out/'six_layer_config.json');model=SixLayerRewriter(six_config)
@@ -96,31 +117,54 @@ def run(args):
                     if len(tokenizer(row[field])['input_ids'])>args.max_length:
                         raise ValueError(f'{split} {row["id"]} {field} exceeds max-length; refusing silent truncation')
     model.to(device)
+    word_task = WordTask(model, tokenizer, device, args.max_length) if word_rows else None
+    word_examples = word_task.training_examples(word_rows) if word_task else []
+    fixed_words = word_examples[:args.batch_size]
+    word_rng = random.Random(args.seed + 1)
     optimizer=torch.optim.AdamW([p for p in model.parameters() if p.requires_grad],lr=args.lr)
     scheduler=torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer,mode='min',factor=args.lr_drop_factor,patience=args.lr_patience,threshold=.001,threshold_mode='rel',min_lr=args.min_lr) if args.lr_scheduler=='plateau' else None
-    fixed=batch(train[:args.batch_size],tokenizer,device,args.max_length)
+    fixed_rows = train[:args.batch_size]
+
+    def train_objective(inputs, words):
+        sentence = model.sequence_losses(**inputs)
+        loss = sum(sentence.values()) / len(sentence)
+        terms = {f'{name}_cross_entropy': value for name, value in sentence.items()}
+        if word_task:
+            word_loss = word_task.loss(words)
+            loss = loss + args.word_loss_weight * word_loss
+            terms['word_cross_entropy'] = word_loss
+        return loss, terms
+
     @torch.no_grad()
     def fixed_loss():
-        model.eval(); return model(**fixed).loss.item()
+        model.eval()
+        fixed = batch(fixed_rows, tokenizer, device, args.max_length, word_task)
+        return train_objective(fixed, fixed_words)[0].item()
     @torch.no_grad()
-    def validation_loss():
-        model.eval(); numerator=denominator=0
+    def validation_losses():
+        model.eval(); denominator=0
+        numerators = dict.fromkeys(model.sentence_depths, 0.)
         for i in range(0,len(val),args.batch_size):
-            b=batch(val[i:i+args.batch_size],tokenizer,device,args.max_length)
-            tokens=(b['labels']!=-100).sum().item(); numerator+=model(**b).loss.item()*tokens; denominator+=tokens
-        return numerator/denominator
+            b=batch(val[i:i+args.batch_size],tokenizer,device,args.max_length,word_task)
+            tokens=(b['labels']!=-100).sum().item(); denominator+=tokens
+            for name, value in model.sequence_losses(**b).items():
+                numerators[name] += value.item()*tokens
+        return {name: value/denominator for name, value in numerators.items()}
     validation_history=[]; validation_seconds=0.; best_value=float('inf'); best_step=None; unimproved=0
     validation_path=out/'validation_progress.jsonl'
     validation_path.write_text('',encoding='utf8')
     def record_validation(step):
         nonlocal validation_seconds,best_value,best_step,unimproved
         validation_start=time.perf_counter()
-        value=validation_loss(); fixed_value=fixed_loss()
+        by_depth = validation_losses()
+        value = sum(by_depth.values()) / len(by_depth)
+        fixed_value=fixed_loss()
         if not math.isfinite(value): raise RuntimeError('Non-finite validation loss')
         before=optimizer.param_groups[0]['lr']
         if scheduler is not None: scheduler.step(value)
         after=optimizer.param_groups[0]['lr']
         entry={'step':step,'validation_cross_entropy':value,'fixed_train_batch_loss':fixed_value,'learning_rate':before,'next_learning_rate':after}
+        entry['validation_cross_entropy_by_depth'] = by_depth
         validation_history.append(entry)
         if value<best_value:
             best_value=value; best_step=step; unimproved=0
@@ -129,7 +173,7 @@ def run(args):
         with validation_path.open('a',encoding='utf8') as stream: stream.write(json.dumps(entry)+'\n')
         print(f'[validation {step}/{args.steps}] loss={value:.4f} fixed_train_loss={fixed_value:.4f} lr={before:.2e} next_lr={after:.2e}',flush=True)
         validation_seconds+=time.perf_counter()-validation_start
-        return value
+        return entry
     initial=fixed_loss(); log=[]; start=time.perf_counter()
     print(f'Training {args.model} on {device}: {len(train)} training pairs, {len(val)} validation pairs, {args.steps} steps',flush=True)
     print(f'Initial fixed-batch loss: {initial:.4f}',flush=True)
@@ -145,14 +189,17 @@ def run(args):
             chosen=[train[index] for index in order[:args.batch_size]]; del order[:args.batch_size]
         else: chosen=random.sample(train,min(args.batch_size,len(train)))
         examples_seen+=len(chosen)
-        b=batch(chosen,tokenizer,device,args.max_length)
-        optimizer.zero_grad(set_to_none=True); loss=model(**b).loss
+        words = word_rng.sample(word_examples, min(args.batch_size, len(word_examples)))
+        optimizer.zero_grad(set_to_none=True)
+        b=batch(chosen,tokenizer,device,args.max_length,word_task)
+        loss, terms = train_objective(b, words)
         if not torch.isfinite(loss): raise RuntimeError('Non-finite loss')
         loss.backward(); grad_norm=torch.nn.utils.clip_grad_norm_(model.parameters(),1.,error_if_nonfinite=True)
         learning_rate=optimizer.param_groups[0]['lr']; optimizer.step()
         loss_value=loss.item()
         recent=[entry['train_loss'] for entry in log[-19:]]+[loss_value]
         entry={'step':step+1,'train_loss':loss_value,'train_loss_ma20':sum(recent)/len(recent),'learning_rate':learning_rate,'gradient_norm_before_clip':grad_norm.item()}
+        entry.update({name: value.item() for name, value in terms.items()})
         log.append(entry)
         with progress_path.open('a',encoding='utf8') as stream:
             stream.write(json.dumps(entry)+'\n')
@@ -167,13 +214,19 @@ def run(args):
     if device.type=='cuda': torch.cuda.synchronize()
     elapsed=time.perf_counter()-start-validation_seconds; final=fixed_loss(); model.eval()
     print('Computing validation loss...',flush=True)
-    final_vl=validation_history[-1]['validation_cross_entropy'] if validation_history and validation_history[-1]['step']==actual_steps else record_validation(actual_steps)
+    final_validation = (validation_history[-1] if validation_history and validation_history[-1]['step']==actual_steps
+                        else record_validation(actual_steps))
+    final_vl = final_validation['validation_cross_entropy']
     if args.checkpoint_selection=='best-validation':
-        model.load_state_dict(torch.load(out/'weights.pt',map_location=device,weights_only=True)); final=fixed_loss(); vl=validation_loss()
-    else: vl=final_vl
+        model.load_state_dict(torch.load(out/'weights.pt',map_location=device,weights_only=True)); final=fixed_loss()
+        selected_validation = validation_losses()
+    else: selected_validation = final_validation['validation_cross_entropy_by_depth']
+    vl = sum(selected_validation.values()) / len(selected_validation)
     print(f'Validation cross-entropy: {vl:.4f}',flush=True)
-    inp=batch(val[:2],tokenizer,device,args.max_length)
-    gen=model.generate(input_ids=inp['input_ids'],attention_mask=inp['attention_mask'],max_new_tokens=args.max_length,num_beams=1)
+    with torch.no_grad():
+        inp=batch(val[:2],tokenizer,device,args.max_length,word_task)
+        gen=model.generate(input_ids=inp['input_ids'],attention_mask=inp['attention_mask'],
+                           max_new_tokens=args.max_length,num_beams=1,word_guidance=inp.get('word_guidance'))
     predictions=[dict(id=r['id'],source=r['source'],reference=r['target'],prediction=p) for r,p in zip(val[:2],tokenizer.batch_decode(gen,skip_special_tokens=True))]
     result={'model':'six_layer','seed':args.seed,'steps':args.steps,'train_pairs':len(train),'validation_pairs':len(val),'max_length':args.max_length,'batch_size':args.batch_size,'learning_rate':args.lr,'fixed_train_batch_loss_before':initial,'fixed_train_batch_loss_after':final,'validation_cross_entropy':vl,'seconds_training':elapsed,'peak_cuda_allocated_mib':torch.cuda.max_memory_allocated()/1024**2 if device.type=='cuda' else None,'parameters':sum(p.numel() for p in model.parameters()),'trainable_parameters':sum(p.numel() for p in model.parameters() if p.requires_grad),'train_truncated_sources':sum(len(tokenizer(r['source'])['input_ids'])>args.max_length for r in train),'train_truncated_targets':sum(len(tokenizer(r['target'])['input_ids'])>args.max_length for r in train),'device':str(device),'gpu':torch.cuda.get_device_name(device) if device.type=='cuda' else None,'torch':torch.__version__,'test_set_used':False,'args':vars(args)}
     result.update(steps=actual_steps,requested_steps=args.steps,final_step_validation_cross_entropy=final_vl,checkpoint_selection=args.checkpoint_selection,selected_step=best_step if args.checkpoint_selection=='best-validation' else actual_steps,best_recorded_validation_cross_entropy=best_value,final_learning_rate=optimizer.param_groups[0]['lr'],lr_scheduler=args.lr_scheduler,seconds_validation=validation_seconds,sampling=args.sampling,examples_seen=examples_seen,dataset_equivalent_passes=examples_seen/len(train),optimizer_reinitialized=True,parent_checkpoint=str(parent) if parent else None,parent_weights_sha256=file_hash(parent/'weights.pt') if parent else None,data_sha256={split:file_hash(Path(args.data)/(split+'.jsonl')) for split in ['train','validation']})
@@ -184,6 +237,12 @@ def run(args):
         conditional_generation='causal source prefix; target-only token loss',
         experiment_type='pipeline smoke test, not a quality comparison' if args.tiny else 'six-layer synthetic-augmented exploratory training',
         cross_entropy_comparability='Compare CE only when tokenization and evaluation protocol match.')
+    result['validation_cross_entropy_by_depth'] = selected_validation
+    if word_task:
+        result.update(word_training_pairs=len(word_rows), word_training_data_sha256=word_hash,
+                      rewrite_modes=['shallow', *model.sentence_depths],
+                      objective_weights={'shallow': args.word_loss_weight, 'medium': .5, 'deep': .5},
+                      checkpoint_selection_metric='Mean of medium and deep validation cross-entropies')
     manifest=Path(args.data)/'manifest.json'
     if manifest.exists():result['training_data_manifest_sha256']=file_hash(manifest)
     result['validation_examples_max_new_tokens']=args.max_length
@@ -208,7 +267,10 @@ def parser():
     p.add_argument('--seed',type=int,default=42)
     p.add_argument('--device')
     p.add_argument('--log-every',type=int,default=100)
-    p.add_argument('--depth', choices=NEURAL_DEPTHS, help='New runs default to deep; continuations use the saved depth')
+    p.add_argument('--depth', choices=CHECKPOINT_DEPTHS,
+                   help='New runs default to joint; continuations use the saved depth')
+    p.add_argument('--word-data', default='data/word-formality-v1/train.jsonl', help='Word training pairs for the joint model')
+    p.add_argument('--word-loss-weight', type=float, default=.25, help='Weight on the joint single-word cross-entropy')
     p.add_argument('--d-model',type=int,default=192,help='Six-layer hidden width')
     p.add_argument('--attention-heads',type=int,default=4,help='Six-layer attention head count')
     p.add_argument('--ffn-dim',type=int,default=768,help='Six-layer Transformer feed-forward width')

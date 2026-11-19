@@ -1,6 +1,6 @@
 # Academic revision datasets
 
-See the [word formality training corpus](../data/word-formality-v1/README.md) for the separate shallow rewrite task.
+The [word formality corpus](../data/word-formality-v1/README.md) supervises the word module during the same run as sentence-pair training. Its 76 synthetic examples are training only. Use separate, independently reviewed real word pairs for the optional word test.
 
 All original dataset files, frozen splits, source hashes and curation records are retained. Dataset code is in `academic_rewriter.prepare` and `academic_rewriter.synthetic`. A changed study must use a new versioned path rather than replace frozen data.
 
@@ -44,6 +44,6 @@ These records do not add new paper text to the public repository. Original paper
 
 ## Loading and tokenization
 
-Training, validation and test records use `id`, `source` and `target`. The six-layer training tokenizer is fitted to training text only. Source and target receive BOS/EOS tokens, dynamic right padding uses attention masks, and target padding is ignored by cross-entropy. The versioned launcher verifies data hashes and rejects source/target truncation.
+Sentence training, validation and test records use `id`, `source` and `target`. The joint six-layer tokenizer is fitted to sentence and word training text only. Source and target receive BOS/EOS tokens, dynamic right padding uses attention masks, and target padding is ignored by cross-entropy. The versioned launcher verifies data hashes and rejects source/target truncation.
 
 Use the included prepared files for normal training. Pinned raw downloading and data preparation are retained for provenance and creation of separately versioned studies; neither needs to run before using the existing corpus.

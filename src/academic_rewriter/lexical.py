@@ -34,6 +34,15 @@ class LexicalEdit:
     target: str
 
 
+def apply_word_edits(text, edits):
+    parts = []
+    offset = 0
+    for edit in edits:
+        parts.extend((text[offset:edit.start], edit.target))
+        offset = edit.end
+    return "".join(parts) + text[offset:]
+
+
 def _replace_case(original: str, replacement: str) -> str | None:
     if original.islower():
         return replacement
@@ -202,12 +211,7 @@ class LexicalFormalizer:
             if replacement is not None:
                 edits.append(LexicalEdit(token.start(), token.end(), source, replacement))
 
-        parts = []
-        offset = 0
-        for edit in edits:
-            parts.extend((text[offset:edit.start], edit.target))
-            offset = edit.end
-        return "".join(parts) + text[offset:], edits
+        return apply_word_edits(text, edits), edits
 
 
 def _decode_rows(content: bytes, path: Path) -> list[dict]:
@@ -233,7 +237,30 @@ def read_lexical_pairs(path: str | Path) -> list[dict]:
     return _decode_rows(path.read_bytes(), path)
 
 
-def evaluate_lexical(model: LexicalFormalizer, rows: Iterable[Mapping]) -> dict:
+def read_lexical_training(path):
+    path = Path(path)
+    content = path.read_bytes()
+    rows = _decode_rows(content, path)
+    if any(str(row.get("split", "train")).strip().lower() not in {"train", "training"}
+           for row in rows):
+        raise ValueError("Training requires examples from the training split")
+    return rows, hashlib.sha256(content).hexdigest()
+
+
+def read_lexical_evaluation(path, training_sha256):
+    path = Path(path)
+    content = path.read_bytes()
+    rows = _decode_rows(content, path)
+    if hashlib.sha256(content).hexdigest() == training_sha256 or any(
+        row.get("synthetic") or row.get("training_only")
+        or str(row.get("split", "")).strip().lower() in {"train", "training"}
+        for row in rows
+    ):
+        raise ValueError("Evaluation requires separate, nonsynthetic data")
+    return rows
+
+
+def evaluate_lexical(model, rows: Iterable[Mapping]) -> dict:
     counts = Counter()
     for row in rows:
         tokens, index, expected = _example(row)
@@ -275,25 +302,15 @@ def main():
     evaluate.add_argument("--data", required=True, type=Path)
     args = parser.parse_args()
     try:
-        content = args.data.read_bytes()
-        data_hash = hashlib.sha256(content).hexdigest()
-        rows = _decode_rows(content, args.data)
         if args.command == "train":
-            if any(str(row.get("split", "train")).strip().lower() not in {"train", "training"}
-                   for row in rows):
-                raise ValueError("Training requires examples from the training split")
+            rows, data_hash = read_lexical_training(args.data)
             model = LexicalFormalizer.fit(rows, training_sha256=data_hash)
             model.save(args.output)
             result = {"training_examples": len(rows), "training_sha256": data_hash,
                       "model": str(args.output)}
         else:
             model = LexicalFormalizer.load(args.model)
-            if data_hash == model.training_sha256 or any(
-                row.get("synthetic") or row.get("training_only")
-                or str(row.get("split", "")).strip().lower() in {"train", "training"}
-                for row in rows
-            ):
-                raise ValueError("Evaluation requires separate, nonsynthetic data")
+            rows = read_lexical_evaluation(args.data, model.training_sha256)
             result = evaluate_lexical(model, rows)
     except (OSError, ValueError) as exc:
         parser.error(str(exc))

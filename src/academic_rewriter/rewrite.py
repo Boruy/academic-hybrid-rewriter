@@ -1,4 +1,4 @@
-"""Rewrite one sentence with the word module or a depth-specific neural checkpoint."""
+"""Select a rewrite mode from a joint or legacy checkpoint."""
 import argparse
 from dataclasses import asdict
 import json
@@ -8,22 +8,44 @@ from .lexical import LexicalFormalizer
 from .prepare import numbers
 
 
-def rewrite_neural(text, depth, checkpoint, device=None, max_new_tokens=None):
+def load_checkpoint(checkpoint, device):
     import torch
     from transformers import AutoTokenizer
 
     from .six_layer import SixLayerConfig, SixLayerRewriter
 
     root = Path(checkpoint)
-    config = SixLayerConfig.load(root/'six_layer_config.json')
-    if config.depth != depth:
-        raise ValueError(f'Use a {depth} checkpoint. This checkpoint uses {config.depth} depth.')
     meta = json.loads((root/'result.json').read_text(encoding='utf8'))
     if meta['model'] != 'six_layer':
         raise ValueError('A completed six-layer checkpoint is required')
 
     tokenizer = AutoTokenizer.from_pretrained(root/'tokenizer', local_files_only=True)
-    inputs = tokenizer(text, return_tensors='pt')
+    tokenizer.padding_side = 'right'
+    model = SixLayerRewriter(SixLayerConfig.load(root/'six_layer_config.json'))
+    model.load_state_dict(torch.load(root/'weights.pt', map_location='cpu', weights_only=True))
+    model.to(device).eval()
+    return model, tokenizer, meta
+
+
+def rewrite_neural(text, depth, checkpoint, device=None, max_new_tokens=None):
+    import torch
+
+    from .joint_words import WordTask
+    from .six_layer import NEURAL_DEPTHS, WORD_LAYERS
+
+    device = torch.device(device or ('cuda' if torch.cuda.is_available() else 'cpu'))
+    model, tokenizer, meta = load_checkpoint(checkpoint, device)
+    config = model.config
+    word_task = WordTask(model, tokenizer, device, meta['max_length']) if model.word_head is not None else None
+    if depth == 'shallow':
+        if word_task is None:
+            raise ValueError('Shallow mode requires a joint checkpoint or a standalone word model')
+        prediction, edits = word_task.rewrite(text)
+        return dict(source=text, prediction=prediction, depth=depth, checkpoint=str(checkpoint),
+                    active_sequence_layers=WORD_LAYERS, word_edits=[asdict(edit) for edit in edits])
+    if depth not in model.sentence_depths:
+        raise ValueError(f'{depth} generation is unavailable for a {config.depth} checkpoint')
+    inputs = tokenizer(text, return_tensors='pt', return_offsets_mapping=word_task is not None)
     source_length = inputs['input_ids'].size(1)
     if source_length > meta['max_length']:
         raise ValueError(f'Source uses {source_length} tokens and exceeds the checkpoint input limit of {meta["max_length"]}')
@@ -32,12 +54,11 @@ def rewrite_neural(text, depth, checkpoint, device=None, max_new_tokens=None):
     if not 1 <= budget <= remaining:
         raise ValueError(f'Generation budget must be between 1 and {remaining} tokens for this input')
 
-    device = torch.device(device or ('cuda' if torch.cuda.is_available() else 'cpu'))
-    model = SixLayerRewriter(config)
-    model.load_state_dict(torch.load(root/'weights.pt', map_location='cpu', weights_only=True))
-    model.to(device).eval()
-    generated = model.generate(input_ids=inputs['input_ids'].to(device),
-                               attention_mask=inputs['attention_mask'].to(device), max_new_tokens=budget)[0]
+    with torch.no_grad():
+        guidance = word_task.guidance([text], inputs['offset_mapping']) if word_task else None
+        generated = model.generate(input_ids=inputs['input_ids'].to(device),
+                                   attention_mask=inputs['attention_mask'].to(device), max_new_tokens=budget,
+                                   depth=depth, word_guidance=guidance)[0]
     tokens = generated.tolist()[1:]  # Skip the initial generation marker.
     candidate = tokenizer.decode(tokens, skip_special_tokens=True).strip()
     if not candidate:
@@ -49,7 +70,7 @@ def rewrite_neural(text, depth, checkpoint, device=None, max_new_tokens=None):
     else:
         fallback = None
     result = dict(source=text, prediction=text if fallback else candidate, depth=depth,
-                  active_sequence_layers=model.active_layer_count, checkpoint=str(root),
+                  active_sequence_layers=NEURAL_DEPTHS[depth], checkpoint=str(checkpoint),
                   fallback=fallback)
     if fallback:
         result['candidate'] = candidate
@@ -61,21 +82,20 @@ def main(argv=None):
     parser.add_argument('--depth', choices=['shallow', 'medium', 'deep'], required=True)
     parser.add_argument('--text', required=True)
     model_group = parser.add_mutually_exclusive_group(required=True)
-    model_group.add_argument('--lexical-model', help='Word model JSON for shallow rewriting')
-    model_group.add_argument('--checkpoint', help='Trained medium or deep checkpoint directory')
+    model_group.add_argument('--lexical-model', help='Legacy standalone word model JSON')
+    model_group.add_argument('--checkpoint', help='Joint checkpoint directory for all modes')
     parser.add_argument('--device', help='Neural device, for example cpu or cuda')
     parser.add_argument('--max-new-tokens', type=int, help='Optional neural decoding limit')
     args = parser.parse_args(argv)
     if not args.text.strip():
         parser.error('--text must contain a sentence')
-    if args.depth == 'shallow':
-        if not args.lexical_model or args.device is not None or args.max_new_tokens is not None:
-            parser.error('Shallow rewriting requires --lexical-model and takes no neural options')
-    elif not args.checkpoint:
-        parser.error('Medium and deep rewriting require --checkpoint')
+    if args.lexical_model and (args.depth != 'shallow' or args.device is not None):
+        parser.error('The standalone --lexical-model is only used with shallow mode on CPU')
+    if args.depth == 'shallow' and args.max_new_tokens is not None:
+        parser.error('--max-new-tokens applies to sentence generation only')
 
     try:
-        if args.depth == 'shallow':
+        if args.lexical_model:
             prediction, edits = LexicalFormalizer.load(args.lexical_model).rewrite(args.text)
             result = dict(source=args.text, prediction=prediction, depth=args.depth,
                           word_edits=[asdict(edit) for edit in edits])

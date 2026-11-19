@@ -4,7 +4,7 @@ The source is a prefix, followed by the target. Only target tokens contribute to
 the training loss. Embeddings and the tied vocabulary projection are not sequence
 blocks. This model has no additional BART encoder or decoder.
 """
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, field
 from itertools import islice
 import json
 from pathlib import Path
@@ -18,6 +18,9 @@ from transformers.modeling_outputs import CausalLMOutput
 from .models import ReferenceMamba
 
 NEURAL_DEPTHS = {'medium': 4, 'deep': 6}
+CHECKPOINT_DEPTHS = ('joint', *NEURAL_DEPTHS)
+WORD_LAYERS = 2
+WORD_GUIDE_STAGES = {WORD_LAYERS: 0, NEURAL_DEPTHS['medium']: 1}
 
 
 @dataclass
@@ -33,10 +36,13 @@ class SixLayerConfig:
     bos_token_id: int = 1
     eos_token_id: int = 2
     depth: str = 'deep'
+    word_replacements: dict[str, list[str]] = field(default_factory=dict)
 
     def __post_init__(self):
-        if self.depth not in NEURAL_DEPTHS:
-            raise ValueError(f'Unknown neural rewrite depth: {self.depth}')
+        if self.depth not in CHECKPOINT_DEPTHS:
+            raise ValueError(f'Unknown checkpoint depth: {self.depth}')
+        if (self.depth == 'joint') != bool(self.word_replacements):
+            raise ValueError('Joint checkpoints require a word replacement vocabulary')
         if min(self.vocab_size, self.d_model, self.attention_heads, self.ffn_dim, self.d_state) < 1:
             raise ValueError('Model dimensions must be positive')
         if self.d_model % self.attention_heads or self.max_positions < 2:
@@ -46,6 +52,11 @@ class SixLayerConfig:
         if any(not 0 <= token < self.vocab_size for token in
                [self.pad_token_id, self.bos_token_id, self.eos_token_id]):
             raise ValueError('Special token outside vocabulary')
+
+    @property
+    def word_labels(self):
+        outcomes = {word for replacements in self.word_replacements.values() for word in replacements}
+        return ('', *sorted(outcomes))  # Class zero retains the source word.
 
     def save(self, path):
         Path(path).write_text(json.dumps(asdict(self), indent=2) + '\n', encoding='utf8')
@@ -162,31 +173,92 @@ class SixLayerRewriter(nn.Module):
         self.layers = nn.ModuleList([LSTMBlock(config), LSTMBlock(config),
                                      TransformerBlock(config), TransformerBlock(config),
                                      MambaBlock(config), MambaBlock(config)])
-        self.active_layer_count = NEURAL_DEPTHS[config.depth]
+        joint = config.depth == 'joint'
+        self.sentence_depths = tuple(NEURAL_DEPTHS) if joint else (config.depth,)
+        self.active_layer_count = NEURAL_DEPTHS[self.sentence_depths[-1]]
         for layer in islice(self.layers, self.active_layer_count, None):
             layer.requires_grad_(False)
         self.output_norm = nn.LayerNorm(config.d_model)
+        self.medium_output_norm = nn.LayerNorm(config.d_model) if joint else None
+        self.word_head = (nn.Sequential(nn.LayerNorm(2 * config.d_model),
+                                       nn.Linear(2 * config.d_model, len(config.word_labels)))
+                          if joint else None)
+        self.word_fusion = (nn.Sequential(nn.LayerNorm(config.d_model),
+                                         nn.Linear(config.d_model, config.d_model, bias=False))
+                            if joint else None)
         nn.init.normal_(self.token_embedding.weight, std=0.02)
         with torch.no_grad():
             self.token_embedding.weight[config.pad_token_id].zero_()
 
-    def sequence_logits(self, tokens, mask, segments=None):
+    def _resolve_depth(self, depth):
+        depth = self.sentence_depths[-1] if depth is None else depth
+        if depth not in self.sentence_depths:
+            raise ValueError(f'{depth} generation is unavailable for a {self.config.depth} checkpoint')
+        return depth
+
+    def _project(self, hidden, depth):
+        norm = self.medium_output_norm if depth == 'medium' and self.medium_output_norm is not None else self.output_norm
+        return F.linear(norm(hidden), self.token_embedding.weight)
+
+    def _embed_sequence(self, tokens, mask, segments=None):
         if tokens.size(1) > self.config.max_positions:
             raise ValueError('Combined source and target exceed position capacity')
         if not mask.bool().any(1).all() or torch.any(mask[:, 1:] > mask[:, :-1]):
             raise ValueError('Nonempty right-padded sequences required')
         segments = torch.zeros_like(tokens) if segments is None else segments
         positions = torch.arange(tokens.size(1), device=tokens.device)
-        hidden = self.embedding_dropout(self.token_embedding(tokens) +
-                                        self.position_embedding(positions)[None] +
-                                        self.segment_embedding(segments)) * mask.unsqueeze(-1)
-        for layer in islice(self.layers, self.active_layer_count):
-            hidden = layer(hidden, mask)
-        return F.linear(self.output_norm(hidden), self.token_embedding.weight)
+        return self.embedding_dropout(self.token_embedding(tokens) +
+                                      self.position_embedding(positions)[None] +
+                                      self.segment_embedding(segments)) * mask.unsqueeze(-1)
 
-    def forward(self, input_ids, attention_mask, labels=None, **kwargs):
-        if labels is None:
-            return CausalLMOutput(logits=self.sequence_logits(input_ids, attention_mask))
+    def _fuse_word_features(self, hidden, strength):
+        return hidden + strength.unsqueeze(-1) * self.word_fusion(hidden)
+
+    def _guide_stage(self, hidden, layer_index, word_guidance):
+        if word_guidance is not None and layer_index in WORD_GUIDE_STAGES:
+            return self._fuse_word_features(hidden, word_guidance[..., WORD_GUIDE_STAGES[layer_index]])
+        return hidden
+
+    def _encode(self, hidden, mask, start, stop, word_guidance=None):
+        for index, layer in enumerate(islice(self.layers, start, stop), start):
+            hidden = self._guide_stage(hidden, index, word_guidance)
+            hidden = layer(hidden, mask)
+        return hidden
+
+    def _validate_guidance(self, tokens, word_guidance):
+        if word_guidance is not None and (
+                self.word_fusion is None or word_guidance.shape != (*tokens.shape, 2)):
+            raise ValueError('Word guidance needs two scores for each input token of a joint checkpoint')
+
+    def sequence_logits(self, tokens, mask, segments=None, *, depth=None, word_guidance=None):
+        depth = self._resolve_depth(depth)
+        self._validate_guidance(tokens, word_guidance)
+        hidden = self._encode(self._embed_sequence(tokens, mask, segments), mask, 0,
+                              NEURAL_DEPTHS[depth], word_guidance)
+        return self._project(hidden, depth)
+
+    def word_logits(self, tokens, mask, segments, focus, allowed, *, refine=True):
+        """Predict local replacements at two stages with the same word module."""
+        if self.word_head is None:
+            raise ValueError('Word prediction requires a joint checkpoint')
+        hidden = self._encode(self._embed_sequence(tokens, mask, segments), mask, 0, WORD_LAYERS)
+        rows = torch.arange(tokens.size(0), device=tokens.device)
+        context_end = mask.long().sum(1) - 1
+
+        def scores(state):
+            features = torch.cat((state[rows, focus], state[rows, context_end]), dim=-1)
+            return self.word_head(features).masked_fill(~allowed, -torch.inf)
+
+        shallow = scores(hidden)
+        if not refine:
+            return (shallow,)
+        edit = 1 - shallow.softmax(-1)[:, 0]
+        hidden = self._fuse_word_features(hidden, edit[:, None] * segments)
+        medium = self._encode(hidden, mask, WORD_LAYERS, NEURAL_DEPTHS['medium'])
+        return shallow, scores(medium)
+
+    def _labeled_outputs(self, input_ids, attention_mask, labels, depths, word_guidance):
+        self._validate_guidance(input_ids, word_guidance)
         sources = [row[mask.bool()] for row, mask in zip(input_ids, attention_mask)]
         targets = [row[row != -100] for row in labels]
         if any(len(row) == 0 for row in sources + targets):
@@ -196,30 +268,59 @@ class SixLayerRewriter(nn.Module):
         mask = torch.zeros_like(tokens)
         segments = torch.zeros_like(tokens)
         expected = tokens.new_full(tokens.shape, -100)
+        guidance = (word_guidance.new_zeros((*tokens.shape, 2)) if word_guidance is not None else None)
         for i, (source, target) in enumerate(zip(sources, targets)):
             boundary, end = len(source), lengths[i]
             tokens[i, :end] = torch.cat([source, target])
             mask[i, :end] = 1
             segments[i, boundary:end] = 1
             expected[i, boundary:end] = target
-        logits = self.sequence_logits(tokens, mask, segments)
-        loss = F.cross_entropy(logits[:, :-1].reshape(-1, self.config.vocab_size),
-                               expected[:, 1:].reshape(-1), ignore_index=-100)
-        return CausalLMOutput(loss=loss, logits=logits)
+            if guidance is not None:
+                guidance[i, :boundary] = word_guidance[i, attention_mask[i].bool()]
+        hidden = self._embed_sequence(tokens, mask, segments)
+        expected = expected[:, 1:].reshape(-1)
+        outputs = {}
+        start = 0
+        for depth in depths:
+            stop = NEURAL_DEPTHS[depth]
+            hidden = self._encode(hidden, mask, start, stop, guidance)
+            logits = self._project(hidden, depth)
+            loss = F.cross_entropy(logits[:, :-1].reshape(-1, self.config.vocab_size), expected,
+                                   ignore_index=-100)
+            outputs[depth] = CausalLMOutput(loss=loss, logits=logits)
+            start = stop
+        return outputs
 
-    def step(self, tokens, positions, segments, valid, states):
+    def sequence_losses(self, input_ids, attention_mask, labels, word_guidance=None):
+        """Compute the sentence objectives with a single pass through the shared blocks."""
+        outputs = self._labeled_outputs(input_ids, attention_mask, labels, self.sentence_depths, word_guidance)
+        return {depth: output.loss for depth, output in outputs.items()}
+
+    def forward(self, input_ids, attention_mask, labels=None, *, depth=None, word_guidance=None, **kwargs):
+        depth = self._resolve_depth(depth)
+        if labels is None:
+            return CausalLMOutput(logits=self.sequence_logits(input_ids, attention_mask, depth=depth,
+                                                            word_guidance=word_guidance))
+        return self._labeled_outputs(input_ids, attention_mask, labels, (depth,), word_guidance)[depth]
+
+    def step(self, tokens, positions, segments, valid, states, *, depth=None, word_guidance=None):
+        depth = self._resolve_depth(depth)
         hidden = self.embedding_dropout(self.token_embedding(tokens) +
                                         self.position_embedding(positions) +
                                         self.segment_embedding(segments)) * valid[:, None]
         updated = []
-        for layer, state in zip(islice(self.layers, self.active_layer_count), states, strict=True):
+        active = islice(self.layers, NEURAL_DEPTHS[depth])
+        for index, (layer, state) in enumerate(zip(active, states, strict=True)):
+            hidden = self._guide_stage(hidden, index, word_guidance)
             hidden, state = layer.step(hidden, valid, state)
             updated.append(state)
-        return F.linear(self.output_norm(hidden), self.token_embedding.weight), updated
+        return self._project(hidden, depth), updated
 
     @torch.no_grad()
     def generate(self, input_ids, attention_mask, max_new_tokens=128, num_beams=1,
-                 do_sample=False, early_stopping=False, **kwargs):
+                 do_sample=False, early_stopping=False, *, depth=None, word_guidance=None, **kwargs):
+        depth = self._resolve_depth(depth)
+        self._validate_guidance(input_ids, word_guidance)
         if num_beams != 1 or do_sample or max_new_tokens < 1:
             raise ValueError('Six-layer generation currently supports deterministic greedy decoding only')
         mask = attention_mask.bool()
@@ -228,12 +329,14 @@ class SixLayerRewriter(nn.Module):
         lengths = mask.sum(1)
         if int(lengths.max()) + max_new_tokens > self.config.max_positions:
             raise ValueError('Requested generation exceeds position capacity')
-        states = [None] * self.active_layer_count
+        states = [None] * NEURAL_DEPTHS[depth]
         logits = self.token_embedding.weight.new_zeros(input_ids.size(0), self.config.vocab_size)
         positions = mask.long().cumsum(1) - 1
         for index in range(input_ids.size(1)):
+            guide = word_guidance[:, index] if word_guidance is not None else None
             next_logits, states = self.step(input_ids[:, index], positions[:, index].clamp_min(0),
-                                            torch.zeros_like(lengths), mask[:, index], states)
+                                            torch.zeros_like(lengths), mask[:, index], states,
+                                            depth=depth, word_guidance=guide)
             logits = torch.where(mask[:, index, None], next_logits, logits)
         finished = torch.zeros_like(lengths, dtype=torch.bool)
         # Match the evaluator's start-token convention; this first token is excluded from counts.
@@ -246,5 +349,5 @@ class SixLayerRewriter(nn.Module):
             if finished.all():
                 break
             logits, states = self.step(token, lengths + index, torch.ones_like(lengths),
-                                        ~finished, states)
+                                        ~finished, states, depth=depth)
         return torch.stack(output, 1)

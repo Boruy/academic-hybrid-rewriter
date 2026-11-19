@@ -2,7 +2,7 @@
 
 [Project overview in Chinese](docs/Project_Overview_ZH.md)
 
-The [three rewrite levels](docs/Three_Level_Model.md) provide a word-only mode and separately trained medium and deep neural modes.
+The [three rewrite levels](docs/Three_Level_Model.md) share a single jointly trained checkpoint. The shallow word module highlights likely edits for each subsequent stage.
 
 An academic text revision model with exactly **2 LSTM + 2 Transformer + 2 Mamba** sequence blocks. The model trains from scratch with a training-only tokenizer. Architecture and commands are documented in [Six_Layer_Model.md](docs/Six_Layer_Model.md).
 
@@ -13,6 +13,7 @@ This repository contains the datasets and their provenance, the six-layer model,
 | Path | Purpose |
 | --- | --- |
 | `data/academic-pairs-v1/` | Ready-to-use training, validation and test splits with a frozen manifest |
+| `data/word-formality-v1/` | Single-word replacements and retain cases for the joint word objective |
 | `data/raw/`, `data/processed/` | Original IteraTeR release, source hashes and real revision splits |
 | `data/curation/` | Preserved audit records and frozen arXivEdits references; not an approved training corpus |
 | `docs/` | Model, dataset and environment documentation |
@@ -31,31 +32,31 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts/setup.ps1
 
 For an existing offline environment, use `scripts/setup.ps1 -Offline`. See [environment setup](docs/Environment_Setup.md). Optional SacreBLEU support can be installed with `.\.venv\Scripts\python.exe -m pip install -e '.[evaluation]'`; other recorded metrics do not require it.
 
-## Train
+## Train one checkpoint
 
 The prepared dataset already exists: **12,491 training pairs** (12,000 synthetic + 491 real), **98 real validation pairs** and **87 real test pairs**. Synthetic pairs are unverified weak supervision and are used only for training. Do not regenerate or repartition this frozen version.
 
 Use a fresh output directory for each run:
 
 ```powershell
-.\.venv\Scripts\python.exe scripts/train_six_layer.py --output runs/six_layer_manual_v2 --print-command
-.\.venv\Scripts\python.exe scripts/train_six_layer.py --output runs/six_layer_manual_v2
+.\.venv\Scripts\python.exe scripts/train_six_layer.py --output runs/six_layer_joint_v1 --print-command
+.\.venv\Scripts\python.exe scripts/train_six_layer.py --output runs/six_layer_joint_v1
 ```
 
-The launcher checks the generator and split hashes before training. The settings use width 192, four attention heads, batch size 16, LR 3e-4, up to 2,000 updates, validation every 250 updates, best-validation checkpoint selection and early stopping. Existing weights are protected against accidental replacement.
+Each update learns from both training corpora and combines the word objective with the medium and deep sentence objectives. The launcher verifies the data and generator hashes. The settings use width 192, four attention heads, batch size 16, LR 3e-4, up to 2,000 updates, validation every 250 updates, best-validation checkpoint selection and early stopping. Existing weights are protected against accidental replacement.
 
 ## Test and export all predictions
 
 ```powershell
-.\.venv\Scripts\python.exe -m academic_rewriter.test --checkpoint runs/six_layer_manual_v2 --split validation --limit 0
-.\.venv\Scripts\python.exe -m academic_rewriter.test --checkpoint runs/six_layer_manual_v2 --split test --limit 0
+.\.venv\Scripts\python.exe -m academic_rewriter.test --checkpoint runs/six_layer_joint_v1 --split validation --limit 0
+.\.venv\Scripts\python.exe -m academic_rewriter.test --checkpoint runs/six_layer_joint_v1 --split test --limit 0
 ```
 
 Both commands default to `data/academic-pairs-v1`, batch size 8 and a budget of 192 new tokens. `--limit 0` evaluates every row. Results are written to `CHECKPOINT/evaluation/SPLIT-192/`:
 
-- `predictions.csv`: every ID, original `source`, model `prediction` and human `reference`, encoded as UTF-8 with a BOM for Excel.
-- `predictions.jsonl`: the same texts plus token-length, truncation and generation-budget diagnostics.
-- `metrics.json`: aggregate cross-entropy, overlap, copy and number-preservation diagnostics.
+- `predictions.csv`: original text, human reference and three rewrite outputs side by side, encoded as UTF-8 with a BOM for Excel.
+- `predictions.jsonl`: the same comparison plus word edits, token lengths, truncation and generation-budget diagnostics.
+- `metrics.json`: results by mode and a copy-input baseline. Pass `--word-test PATH` to add scores for independently reviewed word pairs.
 
 Use `--output runs/evaluation_v2` to choose a new results directory and preserve an earlier evaluation. The CSV retains complete sentences, including commas, quotes and line breaks.
 
