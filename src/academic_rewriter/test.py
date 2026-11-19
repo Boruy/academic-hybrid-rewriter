@@ -96,6 +96,7 @@ def run(args):
                    target_truncated_count=sum(r['target_truncated'] for r in predictions),
                    diagnostic_note='A cap hit means the output used the complete generation budget; it does not prove every such sentence is incomplete.')
     metrics.update(checkpoint=str(root.resolve()), split=args.split, device=str(device),
+                   rewrite_depth=model.config.depth, active_sequence_layers=model.active_layer_count,
                    cross_entropy=numerator/denominator, max_length=meta['max_length'],
                    max_new_tokens=args.max_new_tokens, num_beams=1, do_sample=False,
                    test_set_used=args.split=='test')

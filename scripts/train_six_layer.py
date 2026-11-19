@@ -13,6 +13,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--config', default='configs/six_layer_experiment.json')
     parser.add_argument('--output', help='New checkpoint directory; existing weights are protected')
+    parser.add_argument('--depth', choices=['medium', 'deep'], help='Choose the active neural layers')
     parser.add_argument('--print-command', action='store_true')
     args = parser.parse_args()
     config = json.loads((ROOT/args.config).read_text(encoding='utf8'))
@@ -33,6 +34,8 @@ def main():
             if any(json.loads(line).get('synthetic') for line in path.read_text(encoding='utf8').splitlines()):
                 raise ValueError('Synthetic data cannot enter held-out sets')
     settings = dict(config['settings'], model=config['model'], data=config['data'], output=config['output'])
+    if args.depth:
+        settings['depth'] = args.depth
     command = [sys.executable, '-m', 'academic_rewriter.run']
     for key, value in settings.items():
         flag = '--'+key.replace('_', '-')

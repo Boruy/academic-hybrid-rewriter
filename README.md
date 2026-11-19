@@ -1,5 +1,7 @@
 # Six-layer Academic Rewriter
 
+The [three rewrite levels](docs/Three_Level_Model.md) provide a word-only mode and separately trained medium and deep neural modes.
+
 An academic text revision model with exactly **2 LSTM + 2 Transformer + 2 Mamba** sequence blocks. The model trains from scratch with a training-only tokenizer. Architecture and commands are documented in [Six_Layer_Model.md](docs/Six_Layer_Model.md).
 
 This repository contains the datasets and their provenance, the six-layer model, training and full-split evaluation code, and the supporting configuration and checks. Checkpoints, prediction files and generated reports stay local in ignored directories. Historical baseline implementations, presentations and report pipelines have been removed.

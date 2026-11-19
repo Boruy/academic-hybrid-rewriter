@@ -1,5 +1,7 @@
 # Academic revision datasets
 
+See the [word formality training corpus](../data/word-formality-v1/README.md) for the separate shallow rewrite task.
+
 All original dataset files, frozen splits, source hashes and curation records are retained. Dataset code is in `academic_rewriter.prepare` and `academic_rewriter.synthetic`. A changed study must use a new versioned path rather than replace frozen data.
 
 ## Active paired corpus

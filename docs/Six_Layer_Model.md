@@ -1,5 +1,7 @@
 # Six-layer academic rewriter
 
+See the [three rewrite levels](Three_Level_Model.md) for the word module and the medium and deep neural checkpoint commands.
+
 The model contains exactly **six sequence layers**:
 
 | Layer | Module | Function |

@@ -1,10 +1,11 @@
-"""A causal rewriting model with exactly 2 LSTM + 2 Transformer + 2 Mamba blocks.
+"""A causal rewriting model with 2 LSTM, 2 Transformer and 2 Mamba blocks.
 
 The source is a prefix, followed by the target. Only target tokens contribute to
 the training loss. Embeddings and the tied vocabulary projection are not sequence
 blocks. This model has no additional BART encoder or decoder.
 """
 from dataclasses import asdict, dataclass
+from itertools import islice
 import json
 from pathlib import Path
 
@@ -15,6 +16,8 @@ from torch.nn.utils.rnn import pack_padded_sequence, pad_packed_sequence
 from transformers.modeling_outputs import CausalLMOutput
 
 from .models import ReferenceMamba
+
+NEURAL_DEPTHS = {'medium': 4, 'deep': 6}
 
 
 @dataclass
@@ -29,8 +32,11 @@ class SixLayerConfig:
     pad_token_id: int = 0
     bos_token_id: int = 1
     eos_token_id: int = 2
+    depth: str = 'deep'
 
     def __post_init__(self):
+        if self.depth not in NEURAL_DEPTHS:
+            raise ValueError(f'Unknown neural rewrite depth: {self.depth}')
         if min(self.vocab_size, self.d_model, self.attention_heads, self.ffn_dim, self.d_state) < 1:
             raise ValueError('Model dimensions must be positive')
         if self.d_model % self.attention_heads or self.max_positions < 2:
@@ -156,6 +162,9 @@ class SixLayerRewriter(nn.Module):
         self.layers = nn.ModuleList([LSTMBlock(config), LSTMBlock(config),
                                      TransformerBlock(config), TransformerBlock(config),
                                      MambaBlock(config), MambaBlock(config)])
+        self.active_layer_count = NEURAL_DEPTHS[config.depth]
+        for layer in islice(self.layers, self.active_layer_count, None):
+            layer.requires_grad_(False)
         self.output_norm = nn.LayerNorm(config.d_model)
         nn.init.normal_(self.token_embedding.weight, std=0.02)
         with torch.no_grad():
@@ -171,7 +180,7 @@ class SixLayerRewriter(nn.Module):
         hidden = self.embedding_dropout(self.token_embedding(tokens) +
                                         self.position_embedding(positions)[None] +
                                         self.segment_embedding(segments)) * mask.unsqueeze(-1)
-        for layer in self.layers:
+        for layer in islice(self.layers, self.active_layer_count):
             hidden = layer(hidden, mask)
         return F.linear(self.output_norm(hidden), self.token_embedding.weight)
 
@@ -203,7 +212,7 @@ class SixLayerRewriter(nn.Module):
                                         self.position_embedding(positions) +
                                         self.segment_embedding(segments)) * valid[:, None]
         updated = []
-        for layer, state in zip(self.layers, states):
+        for layer, state in zip(islice(self.layers, self.active_layer_count), states, strict=True):
             hidden, state = layer.step(hidden, valid, state)
             updated.append(state)
         return F.linear(self.output_norm(hidden), self.token_embedding.weight), updated
@@ -219,7 +228,7 @@ class SixLayerRewriter(nn.Module):
         lengths = mask.sum(1)
         if int(lengths.max()) + max_new_tokens > self.config.max_positions:
             raise ValueError('Requested generation exceeds position capacity')
-        states = [None] * 6
+        states = [None] * self.active_layer_count
         logits = self.token_embedding.weight.new_zeros(input_ids.size(0), self.config.vocab_size)
         positions = mask.long().cumsum(1) - 1
         for index in range(input_ids.size(1)):
