@@ -10,16 +10,9 @@ Train the shallow, medium and deep outputs in one run and select the output mode
 
 ## Architecture and loss
 
-```mermaid
-flowchart LR
-    S[Source tokens] --> L1[First LSTM block] --> P1[P1 coarse word prediction]
-    P1 --> E1[E1 word boundary guide] --> F2[Word-guided fusion]
-    L1 --> F2 --> L2[Second LSTM block] --> P2[P2 shallow word output]
-    P2 --> E2[E2 word boundary guide] --> F3[Word-guided fusion]
-    L2 --> F3 --> T[Two Transformer blocks] --> P3[P3 medium sentence and word scores]
-    P3 --> E3[E3 word boundary guide] --> F4[Word-guided fusion]
-    T --> F4 --> M[Two Mamba blocks] --> P4[P4 deep sentence output]
-```
+![The four-stage rewriter with three word feedback paths and joint supervision](figures/four_stage_rewriter.svg)
+
+[Open the model diagram as an SVG](figures/four_stage_rewriter.svg).
 
 Each prediction has a `MidFPred` projection with two linear layers and GELU. The shared single-word edit module takes the place of CDEA. At P1, P2 and P3 it reads the original word span and its context from the current source features, then predicts a replacement or retention. It places the probability of a change on the source subwords. One-dimensional dilation minus erosion highlights their boundaries. The resulting map reweights source features before the next stage. P3's word scores come from the same stage features as its sentence prediction. The guides use only the input sentence during training and inference.
 

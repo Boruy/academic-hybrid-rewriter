@@ -1,0 +1,215 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1860" height="1000" viewBox="0 0 1860 1000"
+     role="img" aria-labelledby="diagram-title diagram-description">
+  <title id="diagram-title">Four-stage academic rewriter</title>
+  <desc id="diagram-description">An English sentence is tokenized and runs through two sequential LSTM stages,
+    two Transformer blocks and two Mamba blocks. Each of the four stages has a MidFPred projection.
+    P1 locates likely word edits, P2 predicts shallow single-word replacements, P3 produces a medium sentence
+    rewrite and refined word scores, and P4 produces a deep rewrite. Three source-only word boundary
+    guides feed shared word edit fusion at the next stage. Word and sentence cross-entropies form
+    a single training objective.</desc>
+  <defs>
+    <marker id="arrow-feature" markerWidth="8" markerHeight="8" refX="8" refY="4" orient="auto"
+            markerUnits="userSpaceOnUse" viewBox="0 0 8 8">
+      <path d="M0 0L8 4L0 8Z" fill="#35546c" />
+    </marker>
+    <marker id="arrow-guide" markerWidth="8" markerHeight="8" refX="8" refY="4" orient="auto"
+            markerUnits="userSpaceOnUse" viewBox="0 0 8 8">
+      <path d="M0 0L8 4L0 8Z" fill="#a95d24" />
+    </marker>
+    <marker id="arrow-loss" markerWidth="8" markerHeight="8" refX="8" refY="4" orient="auto"
+            markerUnits="userSpaceOnUse" viewBox="0 0 8 8">
+      <path d="M0 0L8 4L0 8Z" fill="#73539b" />
+    </marker>
+  </defs>
+  <style>
+    text { font-family: "Segoe UI", Arial, sans-serif; fill: #142a3c; }
+    .title { font-size: 50px; font-weight: 700; letter-spacing: -1px; }
+    .subtitle { font-size: 22px; fill: #476175; }
+    .eyebrow { font-size: 15px; font-weight: 700; letter-spacing: 1.5px; fill: #456478; }
+    .centered { text-anchor: middle; }
+    .block { stroke-width: 1.5; }
+    .stem { fill: #f0f4f7; stroke: #bdcbd6; }
+    .lstm { fill: #eaf3f9; stroke: #a6c5da; }
+    .transformer { fill: #eaf6f2; stroke: #9bcbbb; }
+    .mamba { fill: #efeffb; stroke: #b8b8df; }
+    .lstm-accent { fill: #437eaa; }
+    .transformer-accent { fill: #2f806a; }
+    .mamba-accent { fill: #666bab; }
+    .block-title { font-size: 26px; font-weight: 700; }
+    .input-title { font-size: 22px; font-weight: 700; }
+    .detail { font-size: 17px; fill: #496174; }
+    .fine { font-size: 15px; fill: #4d6374; }
+    .projection { fill: #f4f7fa; stroke: #c9d5de; stroke-width: 1.3; }
+    .projection-title { font-size: 17px; font-weight: 700; }
+    .prediction { fill: #fff; stroke: #b9cad6; stroke-width: 1.5; }
+    .prediction-label { font-size: 15px; letter-spacing: 1px; font-weight: 700; fill: #345a72; }
+    .prediction-title { font-size: 23px; font-weight: 650; }
+    .gate, .guide { fill: #fff3e6; stroke: #ddba99; stroke-width: 1.5; }
+    .guide { fill: #fff9f1; }
+    .gate-title { font-size: 19px; font-weight: 700; fill: #804317; }
+    .guide-title { font-size: 17px; font-weight: 700; fill: #804317; }
+    .guide-detail { font-size: 15px; fill: #80512e; }
+    .loss { fill: #f5f1fa; stroke: #d3c6e3; stroke-width: 1.4; }
+    .loss-title { font-size: 17px; font-weight: 700; fill: #503773; }
+    .feature-arrow { stroke: #35546c; stroke-width: 2.5; fill: none; marker-end: url(#arrow-feature); }
+    .guide-arrow { stroke: #a95d24; stroke-width: 2.5; fill: none; marker-end: url(#arrow-guide); }
+    .loss-arrow { stroke: #73539b; stroke-width: 2.2; fill: none; stroke-dasharray: 5 4; marker-end: url(#arrow-loss); }
+    .objective-title { font-size: 25px; font-weight: 700; fill: #35284b; }
+    .formula { font-family: "Cascadia Mono", Consolas, monospace; font-size: 22px; fill: #34234b; }
+  </style>
+
+  <rect width="1860" height="1000" fill="#f7f9fc" />
+  <text x="58" y="83" class="title">Four-stage academic rewriter</text>
+  <text x="60" y="122" class="subtitle">Six shared sequence blocks, three rewrite modes, one jointly trained checkpoint</text>
+  <g aria-label="Legend">
+    <path class="feature-arrow" d="M1220 81H1256" />
+    <text x="1268" y="87" class="detail">Features</text>
+    <path class="guide-arrow" d="M1367 81H1403" />
+    <text x="1415" y="87" class="detail">Word feedback</text>
+    <path class="loss-arrow" d="M1577 81H1613" />
+    <text x="1625" y="87" class="detail">Supervision</text>
+  </g>
+  <rect x="44" y="174" width="1772" height="579" rx="22" fill="#fff" stroke="#dce5ed" stroke-width="1.5" />
+
+  <g aria-label="Shared input">
+    <text x="58" y="228" class="eyebrow">INPUT</text>
+    <rect x="58" y="254" width="202" height="110" rx="14" class="block stem" />
+    <text x="159" y="294" class="input-title centered">English sentence</text>
+    <text x="159" y="322" class="detail centered">Byte-level BPE</text>
+    <text x="159" y="344" class="fine centered">Shared embeddings</text>
+    <text x="58" y="510" class="eyebrow">WORD FEEDBACK</text>
+    <text x="58" y="541" class="detail">Predicted edit scores</text>
+    <text x="58" y="565" class="detail">are aligned to source</text>
+    <text x="58" y="589" class="detail">subword positions.</text>
+    <text x="58" y="681" class="eyebrow">SUPERVISION</text>
+    <text x="58" y="704" class="fine">Training only</text>
+  </g>
+
+  <g aria-label="Connections">
+    <path class="feature-arrow" d="M261 309H307" />
+    <path class="feature-arrow" d="M549 309H572" />
+    <path class="feature-arrow" d="M700 309H723" />
+    <path class="feature-arrow" d="M967 309H990" />
+    <path class="feature-arrow" d="M1118 309H1141" />
+    <path class="feature-arrow" d="M1385 309H1408" />
+    <path class="feature-arrow" d="M1536 309H1559" />
+    <path class="feature-arrow" d="M429 365V398" />
+    <path class="feature-arrow" d="M429 454V485" />
+    <path class="loss-arrow" d="M429 605V651" />
+    <path class="feature-arrow" d="M846 365V398" />
+    <path class="feature-arrow" d="M846 454V485" />
+    <path class="loss-arrow" d="M846 605V651" />
+    <path class="feature-arrow" d="M1264 365V398" />
+    <path class="feature-arrow" d="M1264 454V485" />
+    <path class="loss-arrow" d="M1264 605V651" />
+    <path class="feature-arrow" d="M1682 365V398" />
+    <path class="feature-arrow" d="M1682 454V485" />
+    <path class="loss-arrow" d="M1682 605V651" />
+    <path class="guide-arrow" d="M549 548H572" />
+    <path class="guide-arrow" d="M637 507V354" />
+    <path class="guide-arrow" d="M967 548H990" />
+    <path class="guide-arrow" d="M1055 507V354" />
+    <path class="guide-arrow" d="M1385 575H1408" />
+    <path class="guide-arrow" d="M1473 507V354" />
+  </g>
+  <g id="p1" aria-label="STAGE 1 INTERNAL">
+    <text x="310" y="228" class="eyebrow">STAGE 1</text>
+    <rect x="310" y="254" width="238" height="110" rx="14" class="block lstm" />
+    <text x="429" y="302" class="block-title centered">First LSTM</text>
+    <text x="429" y="334" class="detail centered">Block 1</text>
+    <rect x="324" y="401" width="210" height="52" rx="9" class="projection" />
+    <text x="429" y="422" class="projection-title centered">MidFPred</text>
+    <text x="429" y="442" class="fine centered">Linear → GELU → Linear</text>
+    <rect x="310" y="488" width="238" height="116" rx="13" class="prediction" />
+    <rect x="311" y="503" width="4" height="86" rx="2" class="lstm-accent" />
+    <text x="329" y="518" class="prediction-label">P1   ·   INTERNAL</text>
+    <text x="329" y="555" class="prediction-title">Coarse word scores</text>
+    <text x="329" y="582" class="detail">Locate likely edits</text>
+    <rect x="310" y="654" width="238" height="68" rx="10" class="loss" />
+    <text x="429" y="681" class="loss-title centered">Word cross-entropy</text>
+    <text x="429" y="704" class="fine centered">Replace or retain labels</text>
+  </g>
+  <g id="p2" aria-label="STAGE 2 SHALLOW">
+    <text x="726" y="228" class="eyebrow">STAGE 2</text>
+    <rect x="726" y="254" width="240" height="110" rx="14" class="block lstm" />
+    <text x="846" y="302" class="block-title centered">Second LSTM</text>
+    <text x="846" y="334" class="detail centered">Block 2</text>
+    <rect x="741" y="401" width="210" height="52" rx="9" class="projection" />
+    <text x="846" y="422" class="projection-title centered">MidFPred</text>
+    <text x="846" y="442" class="fine centered">Linear → GELU → Linear</text>
+    <rect x="726" y="488" width="240" height="116" rx="13" class="prediction" />
+    <rect x="727" y="503" width="4" height="86" rx="2" class="lstm-accent" />
+    <text x="745" y="518" class="prediction-label">P2   ·   SHALLOW</text>
+    <text x="745" y="555" class="prediction-title">Single-word edits</text>
+    <text x="745" y="582" class="detail">Replace or retain</text>
+    <rect x="726" y="654" width="240" height="68" rx="10" class="loss" />
+    <text x="846" y="681" class="loss-title centered">Word cross-entropy</text>
+    <text x="846" y="704" class="fine centered">Replace or retain labels</text>
+  </g>
+  <g id="p3" aria-label="STAGE 3 MEDIUM">
+    <text x="1144" y="228" class="eyebrow">STAGE 3</text>
+    <rect x="1144" y="254" width="240" height="110" rx="14" class="block transformer" />
+    <text x="1264" y="302" class="block-title centered">2 × Transformer</text>
+    <text x="1264" y="334" class="detail centered">Blocks 3–4</text>
+    <rect x="1159" y="401" width="210" height="52" rx="9" class="projection" />
+    <text x="1264" y="422" class="projection-title centered">MidFPred</text>
+    <text x="1264" y="442" class="fine centered">Linear → GELU → Linear</text>
+    <rect x="1144" y="488" width="240" height="116" rx="13" class="prediction" />
+    <rect x="1145" y="503" width="4" height="86" rx="2" class="transformer-accent" />
+    <text x="1163" y="518" class="prediction-label">P3   ·   MEDIUM</text>
+    <text x="1163" y="555" class="prediction-title">Sentence rewrite</text>
+    <text x="1163" y="582" class="detail">Plus refined word scores</text>
+    <rect x="1144" y="654" width="240" height="68" rx="10" class="loss" />
+    <text x="1264" y="681" class="loss-title centered">Sentence CE + word CE</text>
+    <text x="1264" y="704" class="fine centered">Reference tokens and word labels</text>
+  </g>
+  <g id="p4" aria-label="STAGE 4 DEEP">
+    <text x="1562" y="228" class="eyebrow">STAGE 4</text>
+    <rect x="1562" y="254" width="240" height="110" rx="14" class="block mamba" />
+    <text x="1682" y="302" class="block-title centered">2 × Mamba</text>
+    <text x="1682" y="334" class="detail centered">Blocks 5–6</text>
+    <rect x="1577" y="401" width="210" height="52" rx="9" class="projection" />
+    <text x="1682" y="422" class="projection-title centered">MidFPred</text>
+    <text x="1682" y="442" class="fine centered">Linear → GELU → Linear</text>
+    <rect x="1562" y="488" width="240" height="116" rx="13" class="prediction" />
+    <rect x="1563" y="503" width="4" height="86" rx="2" class="mamba-accent" />
+    <text x="1581" y="518" class="prediction-label">P4   ·   DEEP</text>
+    <text x="1581" y="555" class="prediction-title">Sentence rewrite</text>
+    <text x="1581" y="582" class="detail">Full six-block context</text>
+    <rect x="1562" y="654" width="240" height="68" rx="10" class="loss" />
+    <text x="1682" y="681" class="loss-title centered">Sentence cross-entropy</text>
+    <text x="1682" y="704" class="fine centered">Reference output tokens</text>
+  </g>
+  <g id="e1" aria-label="E1 word feedback">
+    <rect x="575" y="267" width="124" height="84" rx="12" class="gate" />
+    <text x="637" y="303" class="gate-title centered">Word edit</text>
+    <text x="637" y="327" class="gate-title centered">fusion</text>
+    <rect x="575" y="508" width="124" height="76" rx="10" class="guide" />
+    <text x="637" y="539" class="guide-title centered">E1 boundary</text>
+    <text x="637" y="562" class="guide-detail centered">1D max − min</text>
+  </g>
+  <g id="e2" aria-label="E2 word feedback">
+    <rect x="993" y="267" width="124" height="84" rx="12" class="gate" />
+    <text x="1055" y="303" class="gate-title centered">Word edit</text>
+    <text x="1055" y="327" class="gate-title centered">fusion</text>
+    <rect x="993" y="508" width="124" height="76" rx="10" class="guide" />
+    <text x="1055" y="539" class="guide-title centered">E2 boundary</text>
+    <text x="1055" y="562" class="guide-detail centered">1D max − min</text>
+  </g>
+  <g id="e3" aria-label="E3 word feedback">
+    <rect x="1411" y="267" width="124" height="84" rx="12" class="gate" />
+    <text x="1473" y="303" class="gate-title centered">Word edit</text>
+    <text x="1473" y="327" class="gate-title centered">fusion</text>
+    <rect x="1411" y="508" width="124" height="76" rx="10" class="guide" />
+    <text x="1473" y="539" class="guide-title centered">E3 boundary</text>
+    <text x="1473" y="562" class="guide-detail centered">1D max − min</text>
+  </g>
+
+  <g aria-label="Weighted training objective">
+    <rect x="58" y="786" width="1744" height="145" rx="16" fill="#f3eff8" stroke="#d6cbe5" stroke-width="1.4" />
+    <text x="82" y="829" class="objective-title">Joint training objective</text>
+    <text x="82" y="872" class="formula">L = 0.50 CE(P3 sentence) + 0.50 CE(P4 sentence) + 0.25 mean(CE(P1 word), CE(P2 word), CE(P3 word))</text>
+    <text x="82" y="904" class="detail">CE = cross-entropy. Word labels and sentence references contribute to the same optimizer update.</text>
+  </g>
+  <text x="60" y="971" class="detail">The shared word edit module replaces CDEA. Its boundary guides use source text only.</text>
+</svg>
