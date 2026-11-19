@@ -1,12 +1,12 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="1860" height="1000" viewBox="0 0 1860 1000"
+<svg xmlns="http://www.w3.org/2000/svg" width="1860" height="1175" viewBox="0 0 1860 1175"
      role="img" aria-labelledby="diagram-title diagram-description">
   <title id="diagram-title">Four-stage academic rewriter</title>
   <desc id="diagram-description">An English sentence is tokenized and runs through two sequential LSTM stages,
     two Transformer blocks and two Mamba blocks. Each of the four stages has a MidFPred projection.
-    P1 locates likely word edits, P2 predicts shallow single-word replacements, P3 produces a medium sentence
-    rewrite and refined word scores, and P4 produces a deep rewrite. Three source-only word boundary
-    guides feed shared word edit fusion at the next stage. Word and sentence cross-entropies form
-    a single training objective.</desc>
+    P1 locates word edits, P2 predicts single-word changes, and P3 adds an auxiliary sentence loss and
+    refined word scores. Three input-only guides feed the next stage. The projected features F1, F2,
+    F3 and F4 are concatenated at each token position and projected into P4, the only final sentence output.
+    Word and sentence cross-entropies form a single training objective.</desc>
   <defs>
     <marker id="arrow-feature" markerWidth="8" markerHeight="8" refX="8" refY="4" orient="auto"
             markerUnits="userSpaceOnUse" viewBox="0 0 8 8">
@@ -19,6 +19,10 @@
     <marker id="arrow-loss" markerWidth="8" markerHeight="8" refX="8" refY="4" orient="auto"
             markerUnits="userSpaceOnUse" viewBox="0 0 8 8">
       <path d="M0 0L8 4L0 8Z" fill="#73539b" />
+    </marker>
+    <marker id="arrow-fusion" markerWidth="8" markerHeight="8" refX="8" refY="4" orient="auto"
+            markerUnits="userSpaceOnUse" viewBox="0 0 8 8">
+      <path d="M0 0L8 4L0 8Z" fill="#246b51" />
     </marker>
   </defs>
   <style>
@@ -34,7 +38,7 @@
     .mamba { fill: #efeffb; stroke: #b8b8df; }
     .lstm-accent { fill: #437eaa; }
     .transformer-accent { fill: #2f806a; }
-    .mamba-accent { fill: #666bab; }
+    .fusion-accent { fill: #246b51; }
     .block-title { font-size: 26px; font-weight: 700; }
     .input-title { font-size: 22px; font-weight: 700; }
     .detail { font-size: 17px; fill: #496174; }
@@ -54,22 +58,29 @@
     .feature-arrow { stroke: #35546c; stroke-width: 2.5; fill: none; marker-end: url(#arrow-feature); }
     .guide-arrow { stroke: #a95d24; stroke-width: 2.5; fill: none; marker-end: url(#arrow-guide); }
     .loss-arrow { stroke: #73539b; stroke-width: 2.2; fill: none; stroke-dasharray: 5 4; marker-end: url(#arrow-loss); }
+    .fusion-wire, .fusion-arrow { stroke: #246b51; stroke-width: 2.5; fill: none; stroke-linejoin: round; }
+    .fusion-arrow { marker-end: url(#arrow-fusion); }
+    .fusion-box { fill: #e9f5ef; stroke: #9ac7b6; stroke-width: 1.5; }
+    .fusion-title { font-size: 22px; font-weight: 700; fill: #245843; }
     .objective-title { font-size: 25px; font-weight: 700; fill: #35284b; }
     .formula { font-family: "Cascadia Mono", Consolas, monospace; font-size: 22px; fill: #34234b; }
   </style>
 
-  <rect width="1860" height="1000" fill="#f7f9fc" />
+  <rect width="1860" height="1175" fill="#f7f9fc" />
   <text x="58" y="83" class="title">Four-stage academic rewriter</text>
-  <text x="60" y="122" class="subtitle">Six shared sequence blocks, three rewrite modes, one jointly trained checkpoint</text>
+  <text x="60" y="122" class="subtitle">Four supervised stages, one fused sentence output</text>
   <g aria-label="Legend">
-    <path class="feature-arrow" d="M1220 81H1256" />
-    <text x="1268" y="87" class="detail">Features</text>
-    <path class="guide-arrow" d="M1367 81H1403" />
-    <text x="1415" y="87" class="detail">Word feedback</text>
-    <path class="loss-arrow" d="M1577 81H1613" />
-    <text x="1625" y="87" class="detail">Supervision</text>
+    <path class="feature-arrow" d="M1040 81H1076" />
+    <text x="1088" y="87" class="detail">Features</text>
+    <path class="guide-arrow" d="M1183 81H1219" />
+    <text x="1231" y="87" class="detail">Word feedback</text>
+    <path class="fusion-arrow" d="M1377 81H1413" />
+    <text x="1425" y="87" class="detail">Stage fusion</text>
+    <path class="loss-arrow" d="M1555 81H1591" />
+    <text x="1603" y="87" class="detail">Supervision</text>
   </g>
   <rect x="44" y="174" width="1772" height="579" rx="22" fill="#fff" stroke="#dce5ed" stroke-width="1.5" />
+  <rect x="44" y="811" width="1772" height="119" rx="18" fill="#fff" stroke="#b9d4c7" stroke-width="1.5" />
 
   <g aria-label="Shared input">
     <text x="58" y="228" class="eyebrow">INPUT</text>
@@ -103,8 +114,6 @@
     <path class="feature-arrow" d="M1264 454V485" />
     <path class="loss-arrow" d="M1264 605V651" />
     <path class="feature-arrow" d="M1682 365V398" />
-    <path class="feature-arrow" d="M1682 454V485" />
-    <path class="loss-arrow" d="M1682 605V651" />
     <path class="guide-arrow" d="M549 548H572" />
     <path class="guide-arrow" d="M637 507V354" />
     <path class="guide-arrow" d="M967 548H990" />
@@ -112,13 +121,25 @@
     <path class="guide-arrow" d="M1385 575H1408" />
     <path class="guide-arrow" d="M1473 507V354" />
   </g>
+  <g id="fusion-connections" aria-label="Four projected features enter final fusion">
+    <path class="fusion-wire" d="M324 427H295V782H1548" />
+    <path class="fusion-wire" d="M741 427H712V782" />
+    <path class="fusion-wire" d="M1159 427H1130V782" />
+    <path class="fusion-wire" d="M1577 427H1548V782" />
+    <circle cx="712" cy="782" r="4" class="fusion-accent" />
+    <circle cx="930" cy="782" r="4" class="fusion-accent" />
+    <circle cx="1130" cy="782" r="4" class="fusion-accent" />
+    <path class="fusion-arrow" d="M930 782V826" />
+    <path class="fusion-arrow" d="M1093 867H1137" />
+    <path class="loss-arrow" d="M1396 867H1547" />
+  </g>
   <g id="p1" aria-label="STAGE 1 INTERNAL">
     <text x="310" y="228" class="eyebrow">STAGE 1</text>
     <rect x="310" y="254" width="238" height="110" rx="14" class="block lstm" />
     <text x="429" y="302" class="block-title centered">First LSTM</text>
     <text x="429" y="334" class="detail centered">Block 1</text>
     <rect x="324" y="401" width="210" height="52" rx="9" class="projection" />
-    <text x="429" y="422" class="projection-title centered">MidFPred</text>
+    <text x="429" y="422" class="projection-title centered">MidFPred · F1</text>
     <text x="429" y="442" class="fine centered">Linear → GELU → Linear</text>
     <rect x="310" y="488" width="238" height="116" rx="13" class="prediction" />
     <rect x="311" y="503" width="4" height="86" rx="2" class="lstm-accent" />
@@ -129,56 +150,48 @@
     <text x="429" y="681" class="loss-title centered">Word cross-entropy</text>
     <text x="429" y="704" class="fine centered">Replace or retain labels</text>
   </g>
-  <g id="p2" aria-label="STAGE 2 SHALLOW">
+  <g id="p2" aria-label="STAGE 2 INTERNAL">
     <text x="726" y="228" class="eyebrow">STAGE 2</text>
     <rect x="726" y="254" width="240" height="110" rx="14" class="block lstm" />
     <text x="846" y="302" class="block-title centered">Second LSTM</text>
     <text x="846" y="334" class="detail centered">Block 2</text>
     <rect x="741" y="401" width="210" height="52" rx="9" class="projection" />
-    <text x="846" y="422" class="projection-title centered">MidFPred</text>
+    <text x="846" y="422" class="projection-title centered">MidFPred · F2</text>
     <text x="846" y="442" class="fine centered">Linear → GELU → Linear</text>
     <rect x="726" y="488" width="240" height="116" rx="13" class="prediction" />
     <rect x="727" y="503" width="4" height="86" rx="2" class="lstm-accent" />
-    <text x="745" y="518" class="prediction-label">P2   ·   SHALLOW</text>
+    <text x="745" y="518" class="prediction-label">P2   ·   INTERNAL</text>
     <text x="745" y="555" class="prediction-title">Single-word edits</text>
     <text x="745" y="582" class="detail">Replace or retain</text>
     <rect x="726" y="654" width="240" height="68" rx="10" class="loss" />
     <text x="846" y="681" class="loss-title centered">Word cross-entropy</text>
     <text x="846" y="704" class="fine centered">Replace or retain labels</text>
   </g>
-  <g id="p3" aria-label="STAGE 3 MEDIUM">
+  <g id="p3" aria-label="STAGE 3 AUXILIARY">
     <text x="1144" y="228" class="eyebrow">STAGE 3</text>
     <rect x="1144" y="254" width="240" height="110" rx="14" class="block transformer" />
     <text x="1264" y="302" class="block-title centered">2 × Transformer</text>
     <text x="1264" y="334" class="detail centered">Blocks 3–4</text>
     <rect x="1159" y="401" width="210" height="52" rx="9" class="projection" />
-    <text x="1264" y="422" class="projection-title centered">MidFPred</text>
+    <text x="1264" y="422" class="projection-title centered">MidFPred · F3</text>
     <text x="1264" y="442" class="fine centered">Linear → GELU → Linear</text>
     <rect x="1144" y="488" width="240" height="116" rx="13" class="prediction" />
     <rect x="1145" y="503" width="4" height="86" rx="2" class="transformer-accent" />
-    <text x="1163" y="518" class="prediction-label">P3   ·   MEDIUM</text>
-    <text x="1163" y="555" class="prediction-title">Sentence rewrite</text>
+    <text x="1163" y="518" class="prediction-label">P3   ·   AUXILIARY</text>
+    <text x="1163" y="555" class="prediction-title">Sentence prediction</text>
     <text x="1163" y="582" class="detail">Plus refined word scores</text>
     <rect x="1144" y="654" width="240" height="68" rx="10" class="loss" />
     <text x="1264" y="681" class="loss-title centered">Sentence CE + word CE</text>
     <text x="1264" y="704" class="fine centered">Reference tokens and word labels</text>
   </g>
-  <g id="p4" aria-label="STAGE 4 DEEP">
+  <g id="f4" aria-label="STAGE 4 FEATURES">
     <text x="1562" y="228" class="eyebrow">STAGE 4</text>
     <rect x="1562" y="254" width="240" height="110" rx="14" class="block mamba" />
     <text x="1682" y="302" class="block-title centered">2 × Mamba</text>
     <text x="1682" y="334" class="detail centered">Blocks 5–6</text>
     <rect x="1577" y="401" width="210" height="52" rx="9" class="projection" />
-    <text x="1682" y="422" class="projection-title centered">MidFPred</text>
+    <text x="1682" y="422" class="projection-title centered">MidFPred · F4</text>
     <text x="1682" y="442" class="fine centered">Linear → GELU → Linear</text>
-    <rect x="1562" y="488" width="240" height="116" rx="13" class="prediction" />
-    <rect x="1563" y="503" width="4" height="86" rx="2" class="mamba-accent" />
-    <text x="1581" y="518" class="prediction-label">P4   ·   DEEP</text>
-    <text x="1581" y="555" class="prediction-title">Sentence rewrite</text>
-    <text x="1581" y="582" class="detail">Full six-block context</text>
-    <rect x="1562" y="654" width="240" height="68" rx="10" class="loss" />
-    <text x="1682" y="681" class="loss-title centered">Sentence cross-entropy</text>
-    <text x="1682" y="704" class="fine centered">Reference output tokens</text>
   </g>
   <g id="e1" aria-label="E1 word feedback">
     <rect x="575" y="267" width="124" height="84" rx="12" class="gate" />
@@ -205,11 +218,25 @@
     <text x="1473" y="562" class="guide-detail centered">1D max − min</text>
   </g>
 
-  <g aria-label="Weighted training objective">
-    <rect x="58" y="786" width="1744" height="145" rx="16" fill="#f3eff8" stroke="#d6cbe5" stroke-width="1.4" />
-    <text x="82" y="829" class="objective-title">Joint training objective</text>
-    <text x="82" y="872" class="formula">L = 0.50 CE(P3 sentence) + 0.50 CE(P4 sentence) + 0.25 mean(CE(P1 word), CE(P2 word), CE(P3 word))</text>
-    <text x="82" y="904" class="detail">CE = cross-entropy. Word labels and sentence references contribute to the same optimizer update.</text>
+  <g id="p4" aria-label="Stage fusion and sole final prediction">
+    <text x="58" y="856" class="eyebrow">FINAL FUSION</text>
+    <text x="58" y="883" class="detail">Four feature streams at each token position</text>
+    <rect x="768" y="829" width="324" height="75" rx="11" class="fusion-box" />
+    <text x="930" y="860" class="fusion-title centered">Concatenate F1–F4</text>
+    <text x="930" y="885" class="detail centered">Learned projection 4d → d</text>
+    <rect x="1140" y="823" width="255" height="87" rx="12" class="prediction" />
+    <rect x="1141" y="835" width="4" height="63" rx="2" class="fusion-accent" />
+    <text x="1159" y="851" class="prediction-label">P4   ·   FINAL OUTPUT</text>
+    <text x="1159" y="883" class="prediction-title">Sentence rewrite</text>
+    <rect x="1550" y="829" width="252" height="75" rx="10" class="loss" />
+    <text x="1676" y="859" class="loss-title centered">Sentence cross-entropy</text>
+    <text x="1676" y="884" class="fine centered">Reference output tokens</text>
   </g>
-  <text x="60" y="971" class="detail">The shared word edit module replaces CDEA. Its boundary guides use source text only.</text>
+  <g aria-label="Weighted training objective">
+    <rect x="58" y="961" width="1744" height="145" rx="16" fill="#f3eff8" stroke="#d6cbe5" stroke-width="1.4" />
+    <text x="82" y="1004" class="objective-title">Joint training objective</text>
+    <text x="82" y="1047" class="formula">L = 0.50 CE(P3 auxiliary) + 0.50 CE(P4 final) + 0.25 mean(CE(P1 word), CE(P2 word), CE(P3 word))</text>
+    <text x="82" y="1079" class="detail">CE = cross-entropy. Word labels and sentence references contribute to the same optimizer update.</text>
+  </g>
+  <text x="60" y="1146" class="detail">The shared word edit module replaces CDEA. Its boundary guides use source text only.</text>
 </svg>

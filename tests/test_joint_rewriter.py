@@ -27,14 +27,31 @@ def write_rows(path, rows):
 
 
 class JointRewriterTests(unittest.TestCase):
-    def test_preexisting_joint_checkpoint_keeps_three_stage_layout(self):
+    def test_preexisting_joint_checkpoints_keep_their_unfused_layout(self):
         with tempfile.TemporaryDirectory() as temporary:
             path = Path(temporary)/'six_layer_config.json'
-            path.write_text(json.dumps(dict(vocab_size=24, d_model=16, depth='joint',
-                                            word_replacements=word_replacements(WORDS))), encoding='utf8')
-            model = SixLayerRewriter(SixLayerConfig.load(path))
-            self.assertEqual(model.prediction_stage_layers, (2, 4, 6))
-            self.assertIsNone(model.mid_predictions)
+            config = dict(vocab_size=24, d_model=16, depth='joint', word_replacements=word_replacements(WORDS))
+            for saved, layers in [(config, (2, 4, 6)), (dict(config, prediction_stages=4), (1, 2, 4, 6))]:
+                with self.subTest(layers=layers):
+                    path.write_text(json.dumps(saved), encoding='utf8')
+                    model = SixLayerRewriter(SixLayerConfig.load(path))
+                    self.assertEqual(model.prediction_stage_layers, layers)
+                    self.assertIsNone(model.final_fusion)
+
+    def test_final_loss_reaches_every_stage_projection_without_word_guides(self):
+        torch.manual_seed(13)
+        model = SixLayerRewriter(SixLayerConfig(
+            vocab_size=24, d_model=16, attention_heads=2, ffn_dim=32, dropout=0., depth='joint',
+            prediction_stages=4, fuse_stage_outputs=True, word_replacements=word_replacements(WORDS)))
+        source = torch.tensor([[1, 4, 2], [1, 5, 2]])
+        targets = torch.tensor([[1, 6, 2], [1, 7, 2]])
+        loss = model(source, torch.ones_like(source), targets).loss
+        parameters = [model.mid_predictions[str(layer)][-1].weight for layer in model.prediction_stage_layers]
+        parameters.append(model.final_fusion.weight)
+        gradients = torch.autograd.grad(loss, parameters)
+        for gradient in gradients:
+            self.assertTrue(torch.isfinite(gradient).all())
+            self.assertGreater(gradient.abs().sum().item(), 0.)
 
     def test_sentence_supervision_reaches_the_word_guidance_module(self):
         with tempfile.TemporaryDirectory() as temporary:
@@ -77,7 +94,7 @@ class JointRewriterTests(unittest.TestCase):
         torch.manual_seed(8)
         model = SixLayerRewriter(SixLayerConfig(
             vocab_size=24, d_model=16, attention_heads=2, ffn_dim=32, dropout=0., depth='joint', prediction_stages=4,
-            word_replacements=word_replacements(WORDS))).eval()
+            fuse_stage_outputs=True, word_replacements=word_replacements(WORDS))).eval()
         tokens = torch.tensor([[1, 4, 5, 2, 1, 6, 2]])
         mask = torch.ones_like(tokens)
         segments = torch.tensor([[0, 0, 0, 0, 1, 1, 1]])
@@ -103,8 +120,10 @@ class JointRewriterTests(unittest.TestCase):
                                                     segments[:, position], mask[:, position].bool(), states,
                                                     depth=depth, word_guidance=guidance[:, position])
                         torch.testing.assert_close(actual, expected[:, position], atol=4e-6, rtol=4e-5)
+        with self.assertRaisesRegex(ValueError, 'only the fused final rewrite'):
+            model.generate(tokens, mask, depth='medium', max_new_tokens=1)
 
-    def test_one_training_run_exports_all_modes_and_optional_word_scores(self):
+    def test_one_training_run_exports_only_the_final_rewrite_and_optional_word_scores(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
             words = root/'words.jsonl'
@@ -127,7 +146,9 @@ class JointRewriterTests(unittest.TestCase):
                 with self.assertRaisesRegex(ValueError, 'separate, nonsynthetic'):
                     evaluate_checkpoint(evaluation_parser().parse_args(flags + ['--word-test', str(words)]))
             self.assertFalse(trained['test_set_used'])
-            self.assertEqual(trained['rewrite_modes'], ['shallow', 'medium', 'deep'])
+            self.assertEqual(trained['rewrite_modes'], ['final'])
+            self.assertTrue(trained['fuse_stage_outputs'])
+            self.assertEqual(trained['validation_cross_entropy'], trained['validation_cross_entropy_by_depth']['deep'])
             self.assertEqual(trained['prediction_stage_layers'], [1, 2, 4, 6])
             self.assertEqual(metrics['prediction_stage_layers'], [1, 2, 4, 6])
             record, = read_rows(output/'training_progress.jsonl')
@@ -137,17 +158,24 @@ class JointRewriterTests(unittest.TestCase):
             expected += training.word_loss_weight*record['word_cross_entropy']
             self.assertAlmostEqual(record['train_loss'], expected, places=5)
             self.assertTrue(metrics['test_set_used'])
-            self.assertEqual(set(metrics['modes']), {'copy_baseline', 'shallow', 'medium', 'deep'})
-            self.assertEqual(metrics['modes']['copy_baseline']['copy_rate'], 1.)
+            self.assertNotIn('modes', metrics)
+            self.assertEqual(metrics['rewrite_depth'], 'final')
+            self.assertEqual(metrics['copy_baseline']['copy_rate'], 1.)
             self.assertEqual(metrics['word_test']['examples'], 2)
             report = output/'evaluation'/'test-8'
             predictions = read_rows(report/'predictions.jsonl')
             with (report/'predictions.csv').open(encoding='utf-8-sig', newline='') as stream:
-                comparison = list(csv.DictReader(stream))
+                reader = csv.DictReader(stream)
+                self.assertEqual(reader.fieldnames, ['id', 'source', 'prediction', 'reference'])
+                comparison = list(reader)
             self.assertEqual([row['source'] for row in comparison], [row['source'] for row in word_test])
             self.assertEqual(len(predictions), 2)
-            for depth in trained['rewrite_modes']:
-                column = f'{depth}_prediction'
-                self.assertEqual([row[column] for row in comparison], [row[column] for row in predictions])
-            single = rewrite_neural(word_test[0]['source'], 'shallow', output, 'cpu')
-            self.assertEqual(single['prediction'], predictions[0]['shallow_prediction'])
+            self.assertEqual([row['prediction'] for row in comparison], [row['prediction'] for row in predictions])
+            for row in predictions:
+                self.assertEqual({key for key in row if 'prediction' in key}, {'prediction'})
+            single = rewrite_neural(word_test[0]['source'], None, output, 'cpu', max_new_tokens=8)
+            self.assertEqual(single['depth'], 'final')
+            self.assertNotIn('candidate', single)
+            self.assertEqual(single['prediction'], single['source'] if single['fallback'] else predictions[0]['prediction'].strip())
+            with self.assertRaisesRegex(ValueError, 'only the fused final rewrite'):
+                rewrite_neural(word_test[0]['source'], 'shallow', output, 'cpu')

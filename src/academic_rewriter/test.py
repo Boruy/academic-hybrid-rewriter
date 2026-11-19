@@ -1,4 +1,4 @@
-"""Evaluate a single checkpoint on a full split and compare its rewrite modes."""
+"""Evaluate a local checkpoint on a full held-out split."""
 import argparse
 import csv
 from dataclasses import asdict
@@ -71,8 +71,10 @@ def run(args):
     device = torch.device(args.device or ('cuda' if torch.cuda.is_available() else 'cpu'))
     model, tokenizer, meta = load_checkpoint(root, device)
     max_length = meta['max_length']
-    depths = model.sentence_depths
+    fused = model.config.fuse_stage_outputs
+    depths = ('deep',) if fused else model.sentence_depths
     word_task = WordTask(model, tokenizer, device, max_length) if model.word_head is not None else None
+    compare_depths = word_task is not None and not fused
     word_rows = None
     if args.word_test:
         if word_task is None:
@@ -86,7 +88,7 @@ def run(args):
     numerators = dict.fromkeys(depths, 0.)
     denominator = 0
     columns = (['id', 'source', 'reference', 'shallow_prediction', 'medium_prediction', 'deep_prediction']
-               if word_task else ['id', 'source', 'prediction', 'reference'])
+               if compare_depths else ['id', 'source', 'prediction', 'reference'])
     with (
         (out/'predictions.jsonl').open('w', encoding='utf8', newline='\n') as stream,
         (out/'predictions.csv').open('w', encoding='utf-8-sig', newline='') as csv_stream,
@@ -98,7 +100,8 @@ def run(args):
             inputs = batch(chosen, tokenizer, device, max_length, word_task)
             tokens = (inputs['labels']!=-100).sum().item()
             denominator += tokens
-            for name, loss in model.sequence_losses(**inputs).items():
+            losses = {'deep': model(**inputs).loss} if fused else model.sequence_losses(**inputs)
+            for name, loss in losses.items():
                 numerators[name] += loss.item()*tokens
             generated = {}
             for depth in depths:
@@ -107,7 +110,7 @@ def run(args):
                                            word_guidance=inputs.get('word_guidance'))
                 generated[depth] = list(zip(tokenizer.batch_decode(sequences, skip_special_tokens=True),
                                             sequences.tolist(), strict=True))
-            shallow = word_task.rewrite_many([row['source'] for row in chosen]) if word_task else None
+            shallow = word_task.rewrite_many([row['source'] for row in chosen]) if compare_depths else None
             for j, row in enumerate(chosen):
                 base = dict(id=row['id'], source=row['source'], reference=row['target'])
                 result = base.copy()
@@ -116,12 +119,12 @@ def run(args):
                     diagnostics = generation_diagnostics(sequence, tokenizer, row['source'], row['target'],
                                                          max_length, args.max_new_tokens)
                     predictions[depth].append(dict(base, prediction=prediction, **diagnostics))
-                    if word_task:
+                    if compare_depths:
                         result[f'{depth}_prediction'] = prediction
                         result[f'{depth}_diagnostics'] = diagnostics
                     else:
                         result.update(prediction=prediction, **diagnostics)
-                if word_task:
+                if compare_depths:
                     prediction, edits = shallow[j]
                     shallow_predictions.append(dict(base, prediction=prediction, edit_count=len(edits)))
                     result.update(shallow_prediction=prediction, shallow_word_edits=[asdict(edit) for edit in edits],
@@ -134,7 +137,7 @@ def run(args):
             print(f'[{args.split} {i + len(chosen)}/{len(rows)}] cross_entropy={average:.4f}', flush=True)
     by_depth = {depth: sentence_metrics(predictions[depth], depth, numerators[depth]/denominator)
                 for depth in depths}
-    if word_task:
+    if compare_depths:
         copy = evaluate([dict(row, prediction=row['source']) for row in shallow_predictions])
         shallow_metrics = evaluate(shallow_predictions)
         shallow_metrics.update(active_sequence_layers=WORD_LAYERS,
@@ -144,8 +147,13 @@ def run(args):
                        word_test=evaluate_lexical(word_task, word_rows) if word_rows is not None else None)
     else:
         metrics = by_depth[depths[0]]
+        if fused:
+            metrics.update(fuse_stage_outputs=True, prediction_stage_layers=list(model.prediction_stage_layers),
+                           copy_baseline=evaluate([dict(row, prediction=row['source']) for row in predictions['deep']]))
+            if word_rows is not None:
+                metrics['word_test'] = evaluate_lexical(word_task, word_rows)
     metrics.update(checkpoint=str(root.resolve()), split=args.split, device=str(device),
-                   rewrite_depth=model.config.depth, active_sequence_layers=model.active_layer_count,
+                   rewrite_depth='final' if fused else model.config.depth, active_sequence_layers=model.active_layer_count,
                    cross_entropy=sum(numerators.values()) / (len(numerators) * denominator), max_length=max_length,
                    max_new_tokens=args.max_new_tokens, num_beams=1, do_sample=False,
                    test_set_used=args.split=='test')

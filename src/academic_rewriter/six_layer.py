@@ -49,6 +49,7 @@ class SixLayerConfig:
     depth: str = 'deep'
     word_replacements: dict[str, list[str]] = field(default_factory=dict)
     prediction_stages: int = 3  # Layout of joint checkpoints saved before explicit stage versioning.
+    fuse_stage_outputs: bool = False
 
     def __post_init__(self):
         if self.depth not in CHECKPOINT_DEPTHS:
@@ -57,6 +58,8 @@ class SixLayerConfig:
             raise ValueError('Joint checkpoints require a word replacement vocabulary')
         if self.prediction_stages not in (3, 4) or (self.prediction_stages == 4 and self.depth != 'joint'):
             raise ValueError('Four prediction stages require a joint checkpoint')
+        if self.fuse_stage_outputs and self.prediction_stages != 4:
+            raise ValueError('Final feature fusion requires four prediction stages')
         if min(self.vocab_size, self.d_model, self.attention_heads, self.ffn_dim, self.d_state) < 1:
             raise ValueError('Model dimensions must be positive')
         if self.d_model % self.attention_heads or self.max_positions < 2:
@@ -208,6 +211,8 @@ class SixLayerRewriter(nn.Module):
                                       nn.Linear(config.d_model, config.d_model))
             for layer in self.prediction_stage_layers
         }) if config.prediction_stages == 4 else None)
+        self.final_fusion = (nn.Linear(len(self.prediction_stage_layers) * config.d_model, config.d_model)
+                             if config.fuse_stage_outputs else None)
         nn.init.normal_(self.token_embedding.weight, std=0.02)
         with torch.no_grad():
             self.token_embedding.weight[config.pad_token_id].zero_()
@@ -218,15 +223,26 @@ class SixLayerRewriter(nn.Module):
             raise ValueError(f'{depth} generation is unavailable for a {self.config.depth} checkpoint')
         return depth
 
-    def _project(self, hidden, depth):
+    def _project(self, hidden, depth, stage_features=None):
         norm = self.medium_output_norm if depth == 'medium' and self.medium_output_norm is not None else self.output_norm
-        projected = self._prediction_features(hidden, NEURAL_DEPTHS[depth])
+        layer = NEURAL_DEPTHS[depth]
+        if self.final_fusion is not None and depth == 'deep':
+            combined = torch.cat([stage_features[key] for key in self.prediction_stage_layers], dim=-1)
+            projected = self.final_fusion(combined)
+        elif stage_features is not None:
+            projected = stage_features[layer]
+        else:
+            projected = self._prediction_features(hidden, layer)
         return F.linear(norm(projected), self.token_embedding.weight)
 
     def _prediction_features(self, hidden, layer):
         if self.mid_predictions is None:
             return hidden
         return hidden + self.mid_predictions[str(layer)](hidden)
+
+    def _record_stage_features(self, stage_features, hidden, layer):
+        if stage_features is not None and layer in self.prediction_stage_layers:
+            stage_features[layer] = self._prediction_features(hidden, layer)
 
     def _embed_sequence(self, tokens, mask, segments=None):
         if tokens.size(1) > self.config.max_positions:
@@ -247,10 +263,11 @@ class SixLayerRewriter(nn.Module):
             return self._fuse_word_features(hidden, word_guidance[..., self.word_guide_channels[layer_index]])
         return hidden
 
-    def _encode(self, hidden, mask, start, stop, word_guidance=None):
+    def _encode(self, hidden, mask, start, stop, word_guidance=None, *, stage_features=None):
         for index, layer in enumerate(islice(self.layers, start, stop), start):
             hidden = self._guide_stage(hidden, index, word_guidance)
             hidden = layer(hidden, mask)
+            self._record_stage_features(stage_features, hidden, index + 1)
         return hidden
 
     def _validate_guidance(self, tokens, word_guidance):
@@ -262,9 +279,10 @@ class SixLayerRewriter(nn.Module):
     def sequence_logits(self, tokens, mask, segments=None, *, depth=None, word_guidance=None):
         depth = self._resolve_depth(depth)
         self._validate_guidance(tokens, word_guidance)
+        stage_features = {} if self.final_fusion is not None and depth == 'deep' else None
         hidden = self._encode(self._embed_sequence(tokens, mask, segments), mask, 0,
-                              NEURAL_DEPTHS[depth], word_guidance)
-        return self._project(hidden, depth)
+                              NEURAL_DEPTHS[depth], word_guidance, stage_features=stage_features)
+        return self._project(hidden, depth, stage_features)
 
     def word_logits(self, tokens, mask, segments, focus, allowed, *, refine=True):
         """Read the separate word windows used by earlier joint checkpoints."""
@@ -339,10 +357,11 @@ class SixLayerRewriter(nn.Module):
         expected = expected[:, 1:].reshape(-1)
         outputs = {}
         start = 0
+        stage_features = {} if self.final_fusion is not None and 'deep' in depths else None
         for depth in depths:
             stop = NEURAL_DEPTHS[depth]
-            hidden = self._encode(hidden, mask, start, stop, guidance)
-            logits = self._project(hidden, depth)
+            hidden = self._encode(hidden, mask, start, stop, guidance, stage_features=stage_features)
+            logits = self._project(hidden, depth, stage_features)
             loss = F.cross_entropy(logits[:, :-1].reshape(-1, self.config.vocab_size), expected,
                                    ignore_index=-100)
             outputs[depth] = CausalLMOutput(loss=loss, logits=logits)
@@ -367,17 +386,21 @@ class SixLayerRewriter(nn.Module):
                                         self.position_embedding(positions) +
                                         self.segment_embedding(segments)) * valid[:, None]
         updated = []
+        stage_features = {} if self.final_fusion is not None and depth == 'deep' else None
         active = islice(self.layers, NEURAL_DEPTHS[depth])
         for index, (layer, state) in enumerate(zip(active, states, strict=True)):
             hidden = self._guide_stage(hidden, index, word_guidance)
             hidden, state = layer.step(hidden, valid, state)
+            self._record_stage_features(stage_features, hidden, index + 1)
             updated.append(state)
-        return self._project(hidden, depth), updated
+        return self._project(hidden, depth, stage_features), updated
 
     @torch.no_grad()
     def generate(self, input_ids, attention_mask, max_new_tokens=128, num_beams=1,
                  do_sample=False, early_stopping=False, *, depth=None, word_guidance=None, **kwargs):
         depth = self._resolve_depth(depth)
+        if self.final_fusion is not None and depth != 'deep':
+            raise ValueError('This checkpoint generates only the fused final rewrite')
         self._validate_guidance(input_ids, word_guidance)
         if num_beams != 1 or do_sample or max_new_tokens < 1:
             raise ValueError('Six-layer generation currently supports deterministic greedy decoding only')

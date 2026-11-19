@@ -1,4 +1,4 @@
-"""Select a rewrite mode from a joint or legacy checkpoint."""
+"""Generate a final sentence rewrite from a local checkpoint."""
 import argparse
 from dataclasses import asdict
 import json
@@ -36,6 +36,9 @@ def rewrite_neural(text, depth, checkpoint, device=None, max_new_tokens=None):
     device = torch.device(device or ('cuda' if torch.cuda.is_available() else 'cpu'))
     model, tokenizer, meta = load_checkpoint(checkpoint, device)
     config = model.config
+    depth = model.sentence_depths[-1] if depth is None else depth
+    if config.fuse_stage_outputs and depth != 'deep':
+        raise ValueError('This checkpoint generates only the fused final rewrite. Omit --depth.')
     word_task = WordTask(model, tokenizer, device, meta['max_length']) if model.word_head is not None else None
     if depth == 'shallow':
         if word_task is None:
@@ -69,35 +72,37 @@ def rewrite_neural(text, depth, checkpoint, device=None, max_new_tokens=None):
         fallback = 'changed_numbers'
     else:
         fallback = None
-    result = dict(source=text, prediction=text if fallback else candidate, depth=depth,
+    result = dict(source=text, prediction=text if fallback else candidate,
+                  depth='final' if config.fuse_stage_outputs else depth,
                   active_sequence_layers=NEURAL_DEPTHS[depth], checkpoint=str(checkpoint),
                   fallback=fallback)
-    if fallback:
+    if fallback and not config.fuse_stage_outputs:
         result['candidate'] = candidate
     return result
 
 
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('--depth', choices=['shallow', 'medium', 'deep'], required=True)
+    parser.add_argument('--depth', choices=['shallow', 'medium', 'deep'],
+                        help='Override the default output for an earlier checkpoint')
     parser.add_argument('--text', required=True)
     model_group = parser.add_mutually_exclusive_group(required=True)
     model_group.add_argument('--lexical-model', help='Legacy standalone word model JSON')
-    model_group.add_argument('--checkpoint', help='Joint checkpoint directory for all modes')
+    model_group.add_argument('--checkpoint', help='Trained checkpoint directory')
     parser.add_argument('--device', help='Neural device, for example cpu or cuda')
     parser.add_argument('--max-new-tokens', type=int, help='Optional neural decoding limit')
     args = parser.parse_args(argv)
     if not args.text.strip():
         parser.error('--text must contain a sentence')
-    if args.lexical_model and (args.depth != 'shallow' or args.device is not None):
+    if args.lexical_model and (args.depth not in (None, 'shallow') or args.device is not None):
         parser.error('The standalone --lexical-model is only used with shallow mode on CPU')
-    if args.depth == 'shallow' and args.max_new_tokens is not None:
+    if (args.depth == 'shallow' or args.lexical_model) and args.max_new_tokens is not None:
         parser.error('--max-new-tokens applies to sentence generation only')
 
     try:
         if args.lexical_model:
             prediction, edits = LexicalFormalizer.load(args.lexical_model).rewrite(args.text)
-            result = dict(source=args.text, prediction=prediction, depth=args.depth,
+            result = dict(source=args.text, prediction=prediction, depth='shallow',
                           word_edits=[asdict(edit) for edit in edits])
         else:
             result = rewrite_neural(args.text, args.depth, args.checkpoint,

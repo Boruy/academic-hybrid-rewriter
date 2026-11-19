@@ -105,7 +105,7 @@ def run(args):
             dropout=0. if args.tiny else args.dropout,max_positions=2*args.max_length+2,
             pad_token_id=tokenizer.pad_token_id,bos_token_id=tokenizer.bos_token_id,
             eos_token_id=tokenizer.eos_token_id,depth=depth,word_replacements=replacements,
-            prediction_stages=4 if depth == 'joint' else 3)
+            prediction_stages=4 if depth == 'joint' else 3, fuse_stage_outputs=depth == 'joint')
     tokenizer.padding_side='right'; tokenizer.save_pretrained(out/'tokenizer')
     if 2*args.max_length>six_config.max_positions: raise ValueError('Continuation max-length exceeds saved position capacity')
     six_config.save(out/'six_layer_config.json');model=SixLayerRewriter(six_config)
@@ -154,6 +154,12 @@ def run(args):
             for name, value in model.sequence_losses(**b).items():
                 numerators[name] += value.item()*tokens
         return {name: value/denominator for name, value in numerators.items()}
+
+    def validation_score(by_depth):
+        if six_config.fuse_stage_outputs:
+            return by_depth['deep']
+        return sum(by_depth.values()) / len(by_depth)
+
     validation_history=[]; validation_seconds=0.; best_value=float('inf'); best_step=None; unimproved=0
     validation_path=out/'validation_progress.jsonl'
     validation_path.write_text('',encoding='utf8')
@@ -161,7 +167,7 @@ def run(args):
         nonlocal validation_seconds,best_value,best_step,unimproved
         validation_start=time.perf_counter()
         by_depth = validation_losses()
-        value = sum(by_depth.values()) / len(by_depth)
+        value = validation_score(by_depth)
         fixed_value=fixed_loss()
         if not math.isfinite(value): raise RuntimeError('Non-finite validation loss')
         before=optimizer.param_groups[0]['lr']
@@ -225,7 +231,7 @@ def run(args):
         model.load_state_dict(torch.load(out/'weights.pt',map_location=device,weights_only=True)); final=fixed_loss()
         selected_validation = validation_losses()
     else: selected_validation = final_validation['validation_cross_entropy_by_depth']
-    vl = sum(selected_validation.values()) / len(selected_validation)
+    vl = validation_score(selected_validation)
     print(f'Validation cross-entropy: {vl:.4f}',flush=True)
     with torch.no_grad():
         inp=batch(val[:2],tokenizer,device,args.max_length,word_task)
@@ -243,11 +249,15 @@ def run(args):
         cross_entropy_comparability='Compare CE only when tokenization and evaluation protocol match.')
     result['validation_cross_entropy_by_depth'] = selected_validation
     if word_task:
+        fused = six_config.fuse_stage_outputs
         result.update(word_training_pairs=len(word_rows), word_training_data_sha256=word_hash,
-                      rewrite_modes=['shallow', *model.sentence_depths],
+                      rewrite_modes=['final'] if fused else ['shallow', *model.sentence_depths],
+                      fuse_stage_outputs=fused,
                       prediction_stage_layers=list(model.prediction_stage_layers),
-                      objective_weights={'shallow': args.word_loss_weight, 'medium': .5, 'deep': .5},
-                      checkpoint_selection_metric='Mean of medium and deep validation cross-entropies')
+                      objective_weights=({'word': args.word_loss_weight, 'aux_sentence': .5, 'final_sentence': .5}
+                                         if fused else {'shallow': args.word_loss_weight, 'medium': .5, 'deep': .5}),
+                      checkpoint_selection_metric=('Fused final validation cross-entropy' if fused else
+                                                   'Mean of medium and deep validation cross-entropies'))
     manifest=Path(args.data)/'manifest.json'
     if manifest.exists():result['training_data_manifest_sha256']=file_hash(manifest)
     result['validation_examples_max_new_tokens']=args.max_length
