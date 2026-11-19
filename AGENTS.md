@@ -11,7 +11,7 @@ pending. Static review, file inspection and authorized GitHub synchronization ma
 ## Project scope and data
 
 - Maintain only the six-layer model: 2 LSTM + 2 Transformer + 2 Mamba blocks, together with its datasets, documentation, training/testing code and necessary setup/configuration.
-- Keep repository documentation in English.
+- Keep repository documentation in English. Maintain the [project overview](docs/Project_Overview_ZH.md) in Chinese at the user's request.
 - Preserve frozen dataset bytes, manifests and generator source hashes. Use a new versioned study path for a changed corpus or partition.
 - Synthetic pairs are training-only. AI triage and upstream intent signals are not independent human approvals.
 - Preserve the frozen arXivEdits partition and source references. New paper text and private blinding keys remain under ignored `.cache`; human-review packets remain unfilled until independent reviewers score them.
@@ -21,6 +21,7 @@ pending. Static review, file inspection and authorized GitHub synchronization ma
 
 The user requests GitHub synchronization after every completed coherent modification.
 
+- Update the [Chinese project overview](docs/Project_Overview_ZH.md) in the same commit as every completed project change. Revise the affected sections and add a dated changelog entry with the change and its verification status. Base recorded results on the available evidence.
 - Validate the affected code or documentation before committing. Respect manual execution: perform static checks and provide pending training/test commands instead of executing project scripts.
 - Preserve existing user changes. Stage only related requested changes, with no credentials or ignored runtime files.
 - Refresh `SHA256SUMS.txt` for changed and newly tracked project files using actual local bytes. Exclude the manifest itself, `.git` and ignored runtime/cache files.
