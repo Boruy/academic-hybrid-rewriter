@@ -1,32 +1,29 @@
-# Third party data and libraries
+# Third-party data and libraries
 
-The new `data/academic-pairs-v1` training corpus combines the attributed existing
-IteraTeR training data with 12,000 newly authored synthetic semantic-frame pairs.
-Synthetic sentences are hypothetical examples, not newly redistributed paper text
-or independent human revisions. Their provenance and limitations are recorded in
-the dataset README and manifest. The six-layer model uses PyTorch modules and the
-project's existing Mamba reference code; it does not bundle pretrained BART weights.
+## IteraTeR and synthetic training pairs
 
 IteraTeR-HUMAN sentence data are from Wanyu Du, Vipul Raheja, Dhruv Kumar, Zae Myung Kim, Melissa Lopez and Dongyeop Kang, Understanding Iterative Revision from Human-Written Text (ACL 2022).
 
-Dataset: https://huggingface.co/datasets/wanyu/IteraTeR_human_sent
-Repository: https://github.com/vipulraheja/iterater
-Pinned revision: e22e0371dac444239b944f9293f5b491d62b73f0
-The upstream dataset card lists Apache-2.0. The upstream repository license is retained as data/IteraTeR_LICENSE.txt.
-Processed copies in data/processed are modified versions: normalization, arXiv/intent selection, length/number filtering, deduplication and document-group re-splitting. See docs/Dataset_Card.md and data/raw/manifest.json for provenance and counts. Preserve the original-source attributions when using the text.
+- Dataset: https://huggingface.co/datasets/wanyu/IteraTeR_human_sent
+- Source repository: https://github.com/vipulraheja/iterater
+- Pinned revision: `e22e0371dac444239b944f9293f5b491d62b73f0`
 
-The repository contains locally generated tiny BART-format smoke checkpoints and fine-tuned checkpoints initialized from facebook/bart-base. The BART model card is available at https://huggingface.co/facebook/bart-base. Preserve the upstream model attribution and applicable terms. PyTorch, Transformers and Tokenizers are separately installed dependencies under their respective upstream licenses. The Mamba reference adapter in src is newly written for this milestone. The optional official mamba_ssm package is not bundled or validated here.
+The upstream dataset card lists Apache-2.0. The upstream repository license is retained as `data/IteraTeR_LICENSE.txt`. Copies in `data/processed` are modified through normalization, arXiv/intent selection, length/number filtering, deduplication and document-group splitting. See `docs/Dataset_Card.md` and `data/raw/manifest.json`. Preserve attribution when using the text.
 
-Raw and processed data, experiment records and fine-tuned checkpoint binaries are included in this repository. Model weights use Git LFS. Virtual environments and the local Hugging Face cache are excluded because they are installation dependencies rather than portable project files. The repository does not assign a new license to the team’s original code.
+`data/academic-pairs-v1` combines the attributed real training split with 12,000 model-authored synthetic semantic-frame pairs. Synthetic sentences describe hypothetical findings rather than newly redistributed paper text or independent human revisions. Provenance, source hashes and limitations are retained in its README and manifest.
 
-## Independent evaluation dependencies
+## Model and installed libraries
 
-BERTScore (MIT): https://github.com/Tiiiger/bert_score. SacreBLEU (Apache-2.0): https://github.com/mjpost/sacrebleu. Exact package versions are recorded in the assessment summary.
+The six-layer model uses PyTorch modules and the project's plain-PyTorch Mamba reference recurrence. It trains from scratch and does not bundle pretrained model weights. PyTorch, Transformers, Tokenizers and NumPy are separately installed dependencies governed by their upstream licenses. Optimized official Mamba kernels are not bundled or validated here.
 
-The public distilbert/distilroberta-base and cross-encoder/nli-deberta-v3-small model cards declare Apache-2.0. Evaluation model IDs, pinned revisions and file hashes are recorded in output/multidimensional/summary.json; weights remain in the ignored local cache rather than being redistributed here. Preserve model-card/license terms when downloading or redistributing these dependencies.
+Optional overlap scoring uses SacreBLEU (Apache-2.0): https://github.com/mjpost/sacrebleu.
 
-## arXivEdits candidate preparation
+Checkpoints, prediction outputs, virtual environments and caches are excluded from the current Git tree. Historical experiment artifacts can still exist in Git history or the ignored local archive. No new license is assigned to the team's original code.
 
-Chao Jiang, Wei Xu and Samuel Stevens, arXivEdits: Understanding the Human Revision Process in Scientific Writing, EMNLP 2022: https://aclanthology.org/2022.emnlp-main.641/. Source repository: https://github.com/chaojiang06/arXivEdits, pinned commit 113913d68522c1c8428d8e191d5c9bed633da6ce.
+## Preserved arXivEdits references
 
-The new public curation records contain source references, hashes, intentions, partition decisions and paper-version license URLs. Original paper text is downloaded into the ignored local cache, not bundled in these new public records. The upstream collection contains mixed paper-specific licenses; neither its availability on GitHub nor the IteraTeR license grants a blanket license over this separate collection. Preserve the paper-specific metadata and verify applicable terms before redistributing derived text. See docs/Academic_Refinement_Protocol.md.
+Chao Jiang, Wei Xu and Samuel Stevens, arXivEdits: Understanding the Human Revision Process in Scientific Writing, EMNLP 2022: https://aclanthology.org/2022.emnlp-main.641/.
+
+Source repository: https://github.com/chaojiang06/arXivEdits, pinned commit `113913d68522c1c8428d8e191d5c9bed633da6ce`.
+
+Public curation records retain source references, hashes, intentions, partition decisions and paper-version license URLs. Original paper text remains in the ignored local cache. Mixed paper-specific licenses apply; public availability and the IteraTeR license do not grant a blanket license over this separate collection. Preserve the frozen partition, source fingerprints and paper-specific metadata. These references are not independently approved training examples. See `docs/Dataset_Card.md`.

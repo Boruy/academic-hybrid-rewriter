@@ -21,8 +21,9 @@ class TrainingControlsTests(unittest.TestCase):
             for split, rows in [('train', training), ('validation', validation)]:
                 (data/(split+'.jsonl')).write_text('\n'.join(json.dumps(row) for row in rows), encoding='utf8')
             output = root/'run'
-            args = parser().parse_args(['--tiny', '--model', 'transformer', '--device', 'cpu',
+            args = parser().parse_args(['--tiny', '--model', 'six_layer', '--device', 'cpu',
                                        '--data', str(data), '--output', str(output), '--steps', '4',
+                                       '--max-length', '16', '--checkpoint-selection', 'final',
                                        '--batch-size', '1', '--lr', '.02', '--eval-every', '1',
                                        '--lr-scheduler', 'plateau', '--lr-patience', '0', '--min-lr', '.001'])
             with contextlib.redirect_stdout(io.StringIO()):

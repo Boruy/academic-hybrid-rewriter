@@ -1,124 +1,73 @@
-# Academic Text Style Enhancement
+# Six-layer Academic Rewriter
 
-A prototype for academic sentence revision. The new implementation has **six sequence layers: 2 LSTM + 2 Transformer + 2 Mamba**, with no additional BART encoder or decoder. The earlier BART + Mamba experiments remain available as historical baselines. Useful academic-expression improvement has not yet been independently established.
+An academic text revision model with exactly **2 LSTM + 2 Transformer + 2 Mamba** sequence blocks. The model trains from scratch with a training-only tokenizer. Architecture and commands are documented in [Six_Layer_Model.md](docs/Six_Layer_Model.md).
 
-The [six-layer implementation and user-run commands](docs/Six_Layer_Model.md) include a [versioned training dataset](data/academic-pairs-v1/README.md): **12,000 generated less-academic/academic pairs + 491 existing real revisions = 12,491 training pairs**. Synthetic pairs are template-generated, explicitly unverified and training-only. The original real validation/test bytes and frozen arXivEdits study are preserved. Run `scripts/train_six_layer.py` yourself to train into the fresh `runs/six_layer_manual_v1` directory; the agent must not execute project code unless explicitly requested.
+This repository contains the datasets and their provenance, the six-layer model, training and full-split evaluation code, and the supporting configuration and checks. Checkpoints, prediction files and generated reports stay local in ignored directories. Historical baseline implementations, presentations and report pipelines have been removed.
 
-The task is **Academic Style Enhancement with Meaning Preservation**, scoped to academic sentence refinement. The [existing interactive data audit](output/academic-refinement/index.html) presents 100 preliminary existing-pair judgments, a pinned arXivEdits candidate pool and the earlier four-arm BART specialization protocol. Of 199 screened new candidates, 21 development pairs are AI-shortlisted; **zero are independently human-verified**. Human-curated specialization training and improved-output evidence remain pending. See the [historical curation protocol](docs/Academic_Refinement_Protocol.md).
+## Project files
 
-## Presentation and results
-
-![Stage-two recorded experiment overview](output/stage-two/overview.png)
-
-- **[Stage-two interactive visual report](output/stage-two/index.html)**: download and open locally; compare all three models across all 87 test examples and both output budgets, search/filter cases and inspect token edits
-- **[Academic refinement data-quality explorer](output/academic-refinement/index.html)**: inspect all 100 preliminary audit decisions, source/target differences, frozen new partitions and the actual readiness of the next experiment
-- [Stage-two figure gallery and rebuild instructions](docs/Stage_Two_Visualization.md), with PNG/SVG exports and source fingerprints
-- [Original five-minute English presentation (snapshot)](output/presentation-5min-en/Academic_Text_Style_Enhancement_5min_EN.pptx)
-- [Timed English speaker script](output/presentation-5min-en/English_Speaker_Script_5min.md), also embedded in the slide notes
-- [Interactive test examples](output/stage-two/index.html#examples): open locally in a browser, or download the repository first
-- [Original one-page second-submission report (snapshot)](output/second-submission/Second_Submission_Report_EN.pdf) and [editable report text](docs/Milestone_Report.md)
-- **[Prediction-quality audit](docs/Prediction_Quality_Audit.md)**: short-budget truncation, missing full-hybrid results and the remaining copying failure
-- [Progress evidence](docs/Progress_Evidence.md)
-- [Architecture and evaluation protocol](docs/Architecture_and_Protocol.md)
-- [Dataset card](docs/Dataset_Card.md) and [learning-rate analysis](docs/Learning_Rate_Analysis.md)
-
-## Multidimensional evaluation
-
-[Measured semantic and editing diagnostics](output/multidimensional/README.md) now include source/reference BERTScore, bidirectional NLI, edit rate, SacreBLEU, copy/reference controls and paired document-group confidence intervals for all three models. The [interactive report](output/stage-two/index.html#multidimensional) shows measured values and pending dimensions separately.
-
-Full hybrid source BERTScore is about 0.9975, but average word edit rate is only 0.31%. High preservation alone still hides the copying failure. The independent academic-classifier training/scoring pipeline is implemented; its scores remain unavailable until suitable human labels are supplied. Fluency and successful-rewrite ratings are also pending.
-
-[Blinded reviewer 1](output/human-evaluation/rater_1.html) and [reviewer 2](output/human-evaluation/rater_2.html) packets contain 120 unscored candidates each from 24 already inspected cases. Their private model mapping remains under ignored .cache. This is a diagnostic pilot, not a new confirmatory test. See the [complete protocol and commands](docs/Multidimensional_Evaluation.md) and [human rubric](docs/Human_Evaluation_Rubric.md).
-
-## Historical BART experiment evidence
-
-The pinned IteraTeR-HUMAN sentence release contains 4,018 records. Cleaning retains 676 arXiv pairs across 95 documents: 491 training, 98 validation and 87 test pairs. Recorded cross-split document and exact-text intersections are zero. Only 24 pairs carry a style label.
-
-All three pretrained runs below use facebook/bart-base, 300 updates, batch size 2, seed 42 and a 128-token limit.
-
-| Run | Backbone | Learning rate | Trainable parameters | Validation token CE |
-| --- | --- | ---: | ---: | ---: |
-| BART baseline | Trainable | 5e-5 | 139,420,416 | 1.2312 |
-| Frozen hybrid | Frozen | 1e-4 | 4,915,968 | 1.1379 |
-| Full hybrid | Trainable | 2e-5 | 144,336,384 | 1.0795 |
-
-Learning rates and trainable parameter counts differ. These single-seed observations do not isolate an architectural advantage.
-
-All three checkpoints now have test predictions under both a 48-token historical budget and a 128-token diagnostic budget. The 128-token run changes decoding length only; no weights were retrained.
-
-| Test metric, 87 pairs, max 128 new tokens | BART baseline | Frozen hybrid | Full hybrid |
-| --- | ---: | ---: | ---: |
-| Whitespace ROUGE-L F1 | 0.8146 | 0.8138 | 0.8138 |
-| Token cross-entropy | 0.8213 | 0.7802 | 0.7395 |
-| Detected number multisets preserved | 87/87 | 85/87 | 87/87 |
-| Exact copies of source | 32/87 | 30/87 | 32/87 |
-| Same word sequence, ignoring case/punctuation | 83/87 | 75/87 | 77/87 |
-| Generation budget reached | 0/87 | 0/87 | 0/87 |
-
-**Current quality is poor.** Returning the source unchanged scores 0.8503 ROUGE-L, above all three models. Only 4/87 human references retain the source word sequence, compared with 77/87 full-hybrid outputs. Lower teacher-forced CE has not translated into effective rewriting.
-
-The original 48-token ROUGE-L values are 0.7580 / 0.7566 / 0.7569. The web report retains both protocols and defaults to verbatim outputs from the 128-token diagnostic. Its figures use that explicitly labeled profile. ROUGE-L is a whitespace diagnostic; number counts include inputs without numbers and cannot certify meaning. The length diagnostic followed test inspection and is not confirmatory model selection. Future confirmatory work needs fresh held-out examples or a revised protocol. See the [quality audit](docs/Prediction_Quality_Audit.md).
+| Path | Purpose |
+| --- | --- |
+| `data/academic-pairs-v1/` | Ready-to-use training, validation and test splits with a frozen manifest |
+| `data/raw/`, `data/processed/` | Original IteraTeR release, source hashes and real revision splits |
+| `data/curation/` | Preserved audit records and frozen arXivEdits references; not an approved training corpus |
+| `docs/` | Model, dataset and environment documentation |
+| `configs/six_layer_experiment.json` | Versioned training settings |
+| `src/academic_rewriter/` | Six-layer model, data preparation, training and evaluation |
+| `scripts/` | Setup, pinned data download, training launcher and integrity check |
+| `tests/` | Model, data-isolation, checkpoint and generation regression checks |
 
 ## Installation
 
-Python 3.10+ is required. On a new computer:
+Use Python 3.10 or later. Run these commands yourself in PowerShell from the project root:
 
-~~~powershell
+```powershell
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts/setup.ps1
-if ($LASTEXITCODE -ne 0) { throw 'Setup failed' }
+```
+
+For an existing offline environment, use `scripts/setup.ps1 -Offline`. See [environment setup](docs/Environment_Setup.md). Optional SacreBLEU support can be installed with `.\.venv\Scripts\python.exe -m pip install -e '.[evaluation]'`; other recorded metrics do not require it.
+
+## Train
+
+The prepared dataset already exists: **12,491 training pairs** (12,000 synthetic + 491 real), **98 real validation pairs** and **87 real test pairs**. Synthetic pairs are unverified weak supervision and are used only for training. Do not regenerate or repartition this frozen version.
+
+Use a fresh output directory for each run:
+
+```powershell
+.\.venv\Scripts\python.exe scripts/train_six_layer.py --output runs/six_layer_manual_v2 --print-command
+.\.venv\Scripts\python.exe scripts/train_six_layer.py --output runs/six_layer_manual_v2
+```
+
+The launcher checks the generator and split hashes before training. The settings use width 192, four attention heads, batch size 16, LR 3e-4, up to 2,000 updates, validation every 250 updates, best-validation checkpoint selection and early stopping. Existing weights are protected against accidental replacement.
+
+## Test and export all predictions
+
+```powershell
+.\.venv\Scripts\python.exe -m academic_rewriter.test --checkpoint runs/six_layer_manual_v2 --split validation --limit 0
+.\.venv\Scripts\python.exe -m academic_rewriter.test --checkpoint runs/six_layer_manual_v2 --split test --limit 0
+```
+
+Both commands default to `data/academic-pairs-v1`, batch size 8 and a budget of 192 new tokens. `--limit 0` evaluates every row. Results are written to `CHECKPOINT/evaluation/SPLIT-192/`:
+
+- `predictions.csv`: every ID, original `source`, model `prediction` and human `reference`, encoded as UTF-8 with a BOM for Excel.
+- `predictions.jsonl`: the same texts plus token-length, truncation and generation-budget diagnostics.
+- `metrics.json`: aggregate cross-entropy, overlap, copy and number-preservation diagnostics.
+
+Use `--output runs/evaluation_v2` to choose a new results directory and preserve an earlier evaluation. The CSV retains complete sentences, including commas, quotes and line breaks.
+
+## Checks
+
+Execution remains user-controlled. The agent provides commands and does not run training, inference, data generators, tests or project scripts without an explicit execution request.
+
+```powershell
 .\.venv\Scripts\python.exe -m unittest discover -s tests -v
-~~~
-
-On Linux or macOS, create a virtual environment and run python -m pip install -e . with that environment's interpreter. The recorded GPU environment used Python 3.11, PyTorch 2.2.0+cu121, Transformers 4.44.2 and an RTX 4060 Laptop GPU. CPU execution is supported.
-
-The existing environment on the original computer can be reused with scripts/setup.ps1 -Offline. It shares packages from D:\conda\envs\tee. Preserve that base environment and do not recreate .venv over it. See [environment setup](docs/Environment_Setup.md).
-
-## Reproduction
-
-Raw and processed data are included. To download the pinned release again and rebuild processed splits:
-
-~~~powershell
-.\.venv\Scripts\python.exe scripts/download_data.py
-.\.venv\Scripts\python.exe -m academic_rewriter.prepare
-~~~
-
-Use new output directories to preserve the recorded experiments:
-
-~~~powershell
-.\.venv\Scripts\python.exe -m academic_rewriter.run --tiny --model hybrid --backend reference --fusion gated --output runs/new_smoke --steps 30
-.\.venv\Scripts\python.exe -m academic_rewriter.run --model transformer --pretrained facebook/bart-base --output runs/new_baseline --steps 300 --train-limit 0 --val-limit 0 --batch-size 2 --lr 5e-5
-.\.venv\Scripts\python.exe -m academic_rewriter.run --model hybrid --pretrained facebook/bart-base --backend reference --freeze-backbone --output runs/new_frozen_hybrid --steps 300 --train-limit 0 --val-limit 0 --batch-size 2 --lr 1e-4
-.\.venv\Scripts\python.exe -m academic_rewriter.test --checkpoint runs/bart_adapter_visible --split validation --output runs/new_validation
-.\.venv\Scripts\python.exe -m academic_rewriter.demo --checkpoint runs/bart_adapter_visible --text 'We looked at a lot of samples.' --force
-~~~
-
-Use --eval-every 50 for validation histories and --lr-scheduler plateau for optional validation-driven scheduling. The runner defaults to final-step weights; --checkpoint-selection best-validation saves and restores the actual best validation checkpoint, including step zero. --init-checkpoint initializes a matching model from local weights with a fresh optimizer. --sampling shuffle-epochs, --early-stopping-patience and --reject-truncation support the next-stage protocol. Existing weights require explicit --overwrite to replace. --local-files-only requires the pretrained model in the local Hugging Face cache.
-
-Learning-rate comparisons use scripts/tune_learning_rate.py. Regenerate their English report and figures with scripts/report_learning_rate.py. Install the optional plotting dependency with python -m pip install -e '.[analysis]' first.
-
-## GitHub synchronization
-
-After each completed change in this project, validate the affected outputs, update the integrity manifest, commit the relevant files and push the current branch to its configured GitHub upstream. This workflow is recorded in [AGENTS.md](AGENTS.md) for future coding sessions. If a push fails, keep the local commit and report that synchronization is pending.
-
-## Included files and Git LFS
-
-The repository includes source, tests, configs, setup and download scripts, original and processed data, completed experiment checkpoints with tokenizers/configs, logs, English documentation, the latest English presentation, analysis figures and original project references. See [the run inventory](runs/README.md).
-
-Model weights use Git LFS. For a complete download:
-
-~~~powershell
-git lfs install
-git clone https://github.com/Boruy/academic-hybrid-rewriter.git
-cd academic-hybrid-rewriter
-git lfs pull
-git lfs fsck
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts/verify_integrity.ps1
-~~~
+```
 
-Source ZIP downloads may contain LFS pointers instead of weights. SHA256SUMS.txt covers project files using the actual checkpoint bytes. .venv, cached pretrained dependencies, bytecode and temporary builds are local installation or generated files and are excluded.
+## Data and evidence
 
-## Limitations and provenance
+See the [dataset card](docs/Dataset_Card.md), [paired-data README](data/academic-pairs-v1/README.md) and [third-party notices](THIRD_PARTY_NOTICES.md). The synthetic generator and frozen data bytes are preserved. New study versions must use new paths. The arXivEdits references are not independent human approvals or ready-to-train examples.
 
-The detector uses transparent heuristics. The current Mamba module uses a sequential PyTorch reference scan with unverified parity against official kernels. The hybrid retains Transformer attention. Optimized speedups, independent academic-tone ratings, human meaning checks, matched multi-seed comparisons and fusion ablations remain future work.
+The Mamba blocks use a sequential PyTorch reference recurrence. Official-kernel parity and optimized speedups are unverified. The Transformer blocks retain quadratic attention. The real validation/test sets have already been inspected and are diagnostic; lower loss or preserved numbers do not establish useful academic rewriting.
 
-Data: [IteraTeR-HUMAN](https://huggingface.co/datasets/wanyu/IteraTeR_human_sent), revision e22e0371dac444239b944f9293f5b491d62b73f0. Preserve [third-party attribution](THIRD_PARTY_NOTICES.md) and data/IteraTeR_LICENSE.txt. Proposal.pdf and MLPre1.pptx are original project references. No new license is assigned here to the team's original code.
+`SHA256SUMS.txt` covers the actual bytes of tracked project files. Environments, caches and user-run artifacts are excluded. Project changes follow the commit-and-push workflow in [AGENTS.md](AGENTS.md).

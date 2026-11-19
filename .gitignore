@@ -10,6 +10,9 @@ __pycache__/
 ~$*
 .DS_Store
 Thumbs.db
+# User-run checkpoints, predictions and generated reports stay local.
+runs/
+output/
 # Credentials and local secrets
 .env
 .env.*

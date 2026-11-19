@@ -1,44 +1,47 @@
-# IteraTeR academic pilot data
+# Academic revision datasets
 
-Prepared 2026-10-24. Source: https://huggingface.co/datasets/wanyu/IteraTeR_human_sent . Author repository: https://github.com/vipulraheja/iterater . Paper: https://arxiv.org/abs/2203.03802 .
+All original dataset files, frozen splits, source hashes and curation records are retained. Dataset code is in `academic_rewriter.prepare` and `academic_rewriter.synthetic`. A changed study must use a new versioned path rather than replace frozen data.
 
-## Provenance
+## Active paired corpus
 
-Revision: e22e0371dac444239b944f9293f5b491d62b73f0. Full file hashes and byte counts are in data/raw/manifest.json. The card lists Apache-2.0; source text originates from several domains and attribution should remain attached. Raw and processed corpora are included with their source manifests and license. The downloadable human sentence release contains 3,254 train, 400 dev and 364 test records (4,018 total), not the much larger FULL or v2 releases.
+`data/academic-pairs-v1` contains:
 
-## Selection
+| Split | Real pairs | Synthetic pairs | Total |
+| --- | ---: | ---: | ---: |
+| Training | 491 | 12,000 | 12,491 |
+| Validation | 98 | 0 | 98 |
+| Test | 87 | 0 | 87 |
 
-Use doc_id patterns for arXiv identifiers, retain style / clarity / fluency, normalize Unicode NFKC and whitespace, remove identity or duplicate pairs, require 5–100 whitespace words on each side and a target/source word ratio of 0.5–2.0, and reject changed numeric multisets. Intent labels guide selection but do not certify academic tone or factual equivalence.
+The 12,000 synthetic pairs use 48 authored semantic frames across 24 technical domains. Source and target share semantic slots and describe hypothetical results. Records include provenance, hashes, protected terms and explicit synthetic/unverified training-only flags.
 
-{
-  "excluded_intent": 449,
-  "length_ratio": 14,
-  "number_change": 22,
-  "word_length": 7,
-  "empty_or_identity": 9,
-  "non_arxiv_document": 2841
-}
+This is template-generated weak supervision. Shared slots and automatic guards do not establish independent semantic equivalence or academic quality. Variations in quantities and terms are not independent naturally occurring writing examples. The 491 real revisions are mixed-intent supervision rather than uniformly academic-style positives.
 
-676 pairs remain, from 95 connected document groups. Combine the downloaded splits and rebuild 80/10/10 **by groups** with seed 42. This differs from the original proposal's nominal sentence proportions. Groups connect all revisions of a document and documents sharing an exact normalized source or target. Actual pair counts need not equal 80/10/10. Do not compare results directly with published official-split scores.
+The corpus manifest records composition, the exact generator hash and both original and prepared split hashes. Validation and test files are byte-for-byte copies of `data/processed`. See the [corpus README](../data/academic-pairs-v1/README.md).
+
+## Original IteraTeR data
+
+Source: Wanyu Du et al., Understanding Iterative Revision from Human-Written Text (ACL 2022). The pinned `wanyu/IteraTeR_human_sent` release is revision `e22e0371dac444239b944f9293f5b491d62b73f0`. Source bytes and hashes are retained in `data/raw/` and `data/raw/manifest.json`; attribution and the upstream license are retained in [THIRD_PARTY_NOTICES.md](../THIRD_PARTY_NOTICES.md) and `data/IteraTeR_LICENSE.txt`.
+
+The downloaded human sentence release has 3,254 train, 400 dev and 364 test records (4,018 total). Processing selects arXiv documents and style, clarity or fluency intents; normalizes Unicode and whitespace; removes identities and duplicates; requires 5-100 words per side and a target/source ratio of 0.5-2.0; and rejects changed numeric multisets.
+
+The retained 676 pairs are split by connected document groups with seed 42. Groups connect revisions of a document and documents sharing an exact normalized source or target. This differs from the upstream sentence splits.
 
 | Split | Pairs | Documents | Clarity | Fluency | Style |
-|---|---:|---:|---:|---:|---:|
+| --- | ---: | ---: | ---: | ---: | ---: |
 | Train | 491 | 76 | 355 | 123 | 13 |
 | Validation | 98 | 9 | 69 | 26 | 3 |
 | Test | 87 | 10 | 67 | 12 | 8 |
 
-All cross-split document and exact-text overlaps are zero. This does not exclude semantic near duplicates, paper-family overlap, or undocumented provenance errors. Upstream document overlaps in the downloaded release are 13 for train/dev and 16 for train/test, which motivates re-splitting.
+Recorded cross-split document and exact-text overlaps are zero. This does not exclude semantic near duplicates or paper-family overlap. Intent labels and unchanged numbers do not certify academic tone or factual equivalence. The already inspected validation/test sets are diagnostics, not unseen confirmatory evidence.
 
-## Real example
+## Preserved curation records
 
-Source: Discovering new intents is a crucial task in a dialogue system .
+`data/curation/iterater_audit_100.jsonl` retains the preliminary audit. `data/curation/arxivedits/` retains source references, hashes, the frozen partition, AI triage and a summary. The arXivEdits source revision is `113913d68522c1c8428d8e191d5c9bed633da6ce`.
 
-Reference: Discovering new intents is a crucial task in dialogue systems .
+These records do not add new paper text to the public repository. Original paper text and private reviewer mappings remain in ignored `.cache` locations. Paper-specific licenses still apply. The public records report zero independently human-verified new pairs; upstream intent signals and AI triage are not independent human approvals. The historical report and curation interfaces have been removed, but the frozen references and provenance remain intact.
 
-Intent: style. arXiv document 2012.08987. Upstream train.json, line 778. This is an upstream human edit, not a model prediction. Its style label does not establish that every reader will prefer the revised wording.
+## Loading and tokenization
 
-## Intended use and limits
+Training, validation and test records use `id`, `source` and `target`. The six-layer training tokenizer is fitted to training text only. Source and target receive BOS/EOS tokens, dynamic right padding uses attention masks, and target padding is ignored by cross-entropy. The versioned launcher verifies data hashes and rejects source/target truncation.
 
-This is a small pilot for scientific sentence revision. Only 24 pairs carry a style label, so most supervision concerns clarity or fluency. Number preservation cannot catch changed negation, hedging, entities or citation meaning. Data include imperfect edits and LaTeX artifacts. Manual review is pending. No synthetic training pairs have been added. The 87-pair test split has now been evaluated and inspected for BART, the frozen hybrid and the full hybrid. It remains separate from training and validation, but it can no longer serve as an unseen confirmatory set.
-
-The tiny tokenizer learns its vocabulary on training text only. Source and target each receive BOS/EOS tokens. Dynamic right padding uses attention masks. Target padding becomes -100 for cross-entropy. Current smoke samples have zero truncation at 128 tokens. This word-level tokenizer is for pipeline verification; use the pretrained BART tokenizer for the main experiments.
+Use the included prepared files for normal training. Pinned raw downloading and data preparation are retained for provenance and creation of separately versioned studies; neither needs to run before using the existing corpus.

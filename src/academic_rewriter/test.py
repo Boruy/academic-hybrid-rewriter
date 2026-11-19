@@ -1,13 +1,13 @@
-"""Run a local checkpoint on a held-out split and save predictions and metrics."""
+"""Evaluate a six-layer checkpoint and export every source/prediction/reference pair."""
 import argparse
+import csv
 import json
 from pathlib import Path
 
 import torch
-from transformers import AutoTokenizer, BartConfig, BartForConditionalGeneration
+from transformers import AutoTokenizer
 
 from .evaluate import evaluate
-from .models import HybridRewriter
 from .six_layer import SixLayerConfig, SixLayerRewriter
 from .run import batch, read_rows
 
@@ -15,25 +15,24 @@ from .run import batch, read_rows
 def parser():
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument('--checkpoint', required=True)
-    p.add_argument('--data', default='data/processed')
+    p.add_argument('--data', default='data/academic-pairs-v1')
     p.add_argument('--split', choices=['validation', 'test'], default='test')
-    p.add_argument('--output', help='Default: CHECKPOINT/evaluation/SPLIT for 48 tokens; SPLIT-BUDGET otherwise')
-    p.add_argument('--batch-size', type=int, default=2)
+    p.add_argument('--output', help='Default: CHECKPOINT/evaluation/SPLIT-BUDGET')
+    p.add_argument('--batch-size', type=int, default=8)
     p.add_argument('--limit', type=int, default=0, help='0 evaluates the entire split')
-    p.add_argument('--max-new-tokens', type=int, default=128, help='Output-token budget; 48 reproduces the historical capped evaluation')
+    p.add_argument('--max-new-tokens', type=int, default=192, help='Maximum generated tokens per example')
     p.add_argument('--device', help='Default: cuda when available, otherwise cpu')
     return p
 
 
 def evaluation_output_path(args):
-    # Preserve historical 48-token evidence when using the larger default budget.
-    folder = args.split if args.max_new_tokens == 48 else f'{args.split}-{args.max_new_tokens}'
+    folder = f'{args.split}-{args.max_new_tokens}'
     return Path(args.output) if args.output else Path(args.checkpoint)/'evaluation'/folder
 
 
 def generation_diagnostics(sequence, tokenizer, source, reference, max_length, max_new_tokens):
     """Record an observed cap hit, not a claim that every capped output is incomplete."""
-    tokens = list(sequence)[1:]  # Exclude BART's decoder-start token.
+    tokens = list(sequence)[1:]  # Exclude the model's initial BOS marker.
     while tokens and tokens[-1] == tokenizer.pad_token_id:
         tokens.pop()
     source_tokens = len(tokenizer(source)['input_ids'])
@@ -49,6 +48,8 @@ def run(args):
         raise ValueError('batch-size and max-new-tokens must be positive; limit must be nonnegative')
     root = Path(args.checkpoint)
     meta = json.loads((root/'result.json').read_text(encoding='utf8'))
+    if meta['model'] != 'six_layer':
+        raise ValueError('Evaluation requires a six-layer checkpoint')
     rows = read_rows(Path(args.data)/(args.split+'.jsonl'))
     if args.limit:
         rows = rows[:args.limit]
@@ -60,16 +61,18 @@ def run(args):
     print(f'Loading {root} on {device}; evaluating {len(rows)} {args.split} pairs', flush=True)
     tokenizer = AutoTokenizer.from_pretrained(root/'tokenizer', local_files_only=True)
     tokenizer.padding_side = 'right'
-    if meta['model']=='six_layer':
-        model = SixLayerRewriter(SixLayerConfig.load(root/'six_layer_config.json'))
-    else:
-        backbone = BartForConditionalGeneration(BartConfig.from_pretrained(root/'backbone_config', local_files_only=True))
-        model = backbone if meta['model']=='transformer' else HybridRewriter(backbone, meta['fusion'], meta['backend'])
+    model = SixLayerRewriter(SixLayerConfig.load(root/'six_layer_config.json'))
     model.load_state_dict(torch.load(root/'weights.pt', map_location='cpu', weights_only=True))
     model.to(device).eval()
     predictions = []
     numerator = denominator = 0
-    with (out/'predictions.jsonl').open('w', encoding='utf8', newline='\n') as stream:
+    columns = ['id', 'source', 'prediction', 'reference']
+    with (
+        (out/'predictions.jsonl').open('w', encoding='utf8', newline='\n') as stream,
+        (out/'predictions.csv').open('w', encoding='utf-8-sig', newline='') as csv_stream,
+    ):
+        comparison = csv.DictWriter(csv_stream, fieldnames=columns)
+        comparison.writeheader()
         for i in range(0, len(rows), args.batch_size):
             chosen = rows[i:i+args.batch_size]
             inputs = batch(chosen, tokenizer, device, meta['max_length'])
@@ -83,7 +86,9 @@ def run(args):
                 result.update(generation_diagnostics(sequence, tokenizer, row['source'], row['target'], meta['max_length'], args.max_new_tokens))
                 predictions.append(result)
                 stream.write(json.dumps(result, ensure_ascii=False)+'\n')
+                comparison.writerow({field: result[field] for field in columns})
             stream.flush()
+            csv_stream.flush()
             print(f'[{args.split} {len(predictions)}/{len(rows)}] cross_entropy={numerator/denominator:.4f}', flush=True)
     metrics = evaluate(predictions)
     metrics.update(generation_limit_reached_count=sum(r['generation_limit_reached'] for r in predictions),

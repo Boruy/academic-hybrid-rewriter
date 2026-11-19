@@ -1,4 +1,5 @@
 import contextlib
+import csv
 import io
 import json
 from pathlib import Path
@@ -78,7 +79,10 @@ class SixLayerTests(unittest.TestCase):
             data.mkdir()
             for split in ['train', 'validation']:
                 rows = [dict(id=split, source='we looked at ten samples', target='we examined ten samples')]
-                (data/(split+'.jsonl')).write_text(json.dumps(rows[0])+'\n', encoding='utf8')
+                if split == 'validation':
+                    rows.append(dict(id='validation-quoted', source='we looked at "ten samples",\nthen compared them.',
+                                     target='we examined "ten samples",\nthen compared them.'))
+                (data/(split+'.jsonl')).write_text(''.join(json.dumps(row)+'\n' for row in rows), encoding='utf8')
             output = root/'run'
             settings = ['--model', 'six_layer', '--tiny', '--device', 'cpu', '--data', str(data),
                         '--steps', '2', '--batch-size', '1', '--max-length', '16', '--eval-every', '1',
@@ -87,7 +91,7 @@ class SixLayerTests(unittest.TestCase):
                 result = run(parser().parse_args(settings + ['--output', str(output)]))
                 metrics = evaluate_checkpoint(evaluation_parser().parse_args([
                     '--checkpoint', str(output), '--data', str(data), '--split', 'validation',
-                    '--device', 'cpu', '--max-new-tokens', '12']))
+                    '--device', 'cpu', '--batch-size', '1', '--max-new-tokens', '12']))
                 continuation = run(parser().parse_args(settings + ['--init-checkpoint', str(output),
                                                         '--output', str(root/'continued')]))
             config = SixLayerConfig.load(output/'six_layer_config.json')
@@ -98,7 +102,16 @@ class SixLayerTests(unittest.TestCase):
                 loss = model(**batch(read_rows(data/'validation.jsonl'), tokenizer, 'cpu', 16)).loss.item()
             self.assertAlmostEqual(result['validation_cross_entropy'], loss, places=5)
             self.assertEqual(result['sequence_layers'], 6)
-            self.assertEqual(metrics['n'], 1)
+            self.assertEqual(metrics['n'], 2)
+            exported = output/'evaluation'/'validation-12'
+            predictions = read_rows(exported/'predictions.jsonl')
+            with (exported/'predictions.csv').open(encoding='utf-8-sig', newline='') as stream:
+                comparison = list(csv.DictReader(stream))
+            self.assertEqual(comparison, [{key: row[key] for key in ['id', 'source', 'prediction', 'reference']}
+                                          for row in predictions])
+            self.assertEqual([row['source'] for row in comparison],
+                             [row['source'] for row in read_rows(data/'validation.jsonl')])
+            self.assertTrue((exported/'predictions.csv').read_bytes().startswith(b'\xef\xbb\xbf'))
             self.assertEqual(continuation['parent_checkpoint'], str(output))
             self.assertFalse((output/'backbone_config').exists())
 

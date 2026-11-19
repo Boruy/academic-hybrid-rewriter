@@ -23,6 +23,6 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts/setup.ps1 -Offline
 
 Offline setup requires dependencies, setuptools and wheel to be installed already. It registers this project without downloading packages. Do not recreate .venv over the working shared environment, because doing so can disable access to its base packages.
 
-The local .cache/huggingface directory stores pretrained dependencies used by --local-files-only. Keep it for offline training. Neither the cache nor the virtual environment belongs in the Git repository. Saved experiment checkpoints include their own tokenizer and backbone configuration for local evaluation.
+The six-layer model initializes from scratch and trains its tokenizer on training text only. It does not need pretrained model downloads. Saved checkpoints include their own tokenizer and six-layer configuration for local evaluation. Existing caches are preserved locally; neither caches nor the virtual environment belong in the Git repository. Checkpoints and predictions are ignored under runs/ or .cache/.
 
-The original smoke environment used Python 3.11, PyTorch 2.2.0+cu121, Transformers 4.44.2, Tokenizers 0.19.1 and NumPy 1.26.4. The optional official Mamba backend requires a separately validated installation. No automatic backend substitution occurs.
+The original environment used Python 3.11, PyTorch 2.2.0+cu121, Transformers 4.44.2, Tokenizers 0.19.1 and NumPy 1.26.4. The six-layer model uses the included PyTorch Mamba reference recurrence and does not expose an official Mamba backend.

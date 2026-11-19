@@ -1,10 +1,9 @@
-"""Reproducible tiny smoke experiment or pretrained BART fine-tuning."""
-import argparse, copy, hashlib, json, math, random, time
+"""Train the six-layer academic rewriter or continue a local checkpoint."""
+import argparse, hashlib, json, math, random, time
 from pathlib import Path
 import torch
-from transformers import BartConfig,BartForConditionalGeneration,AutoTokenizer,PreTrainedTokenizerFast
+from transformers import AutoTokenizer,PreTrainedTokenizerFast
 from tokenizers import Tokenizer,models,pre_tokenizers,trainers,processors,decoders
-from .models import HybridRewriter
 from .six_layer import SixLayerConfig,SixLayerRewriter
 
 def read_rows(path): return [json.loads(s) for s in Path(path).read_text(encoding='utf8').splitlines() if s.strip()]
@@ -43,9 +42,7 @@ def batch(rows,tokenizer,device,max_length):
 
 def run(args):
     if args.lr is None:
-        args.lr = .001 if args.tiny else (.0003 if args.model=='six_layer' else (.0001 if args.model=='hybrid' and args.freeze_backbone else .00002))
-    if args.model=='six_layer' and (args.freeze_backbone or args.backend!='reference'):
-        raise ValueError('The six-layer model has no frozen BART backbone and uses reference Mamba')
+        args.lr = .001 if args.tiny else .0003
     if args.steps < 1 or args.log_every < 1 or args.batch_size < 1 or args.lr <= 0:
         raise ValueError('steps, log-every, batch-size and lr must be positive')
     if args.eval_every < 0 or args.lr_patience < 0 or not 0 < args.lr_drop_factor < 1:
@@ -74,34 +71,19 @@ def run(args):
         parent=Path(args.init_checkpoint)
         if parent.resolve()==out.resolve(): raise ValueError('Continuation output must differ from its parent')
         parent_meta=json.loads((parent/'result.json').read_text(encoding='utf8'))
-        if parent_meta['model']!=args.model or (args.model=='hybrid' and (parent_meta['fusion']!=args.fusion or parent_meta['backend']!=args.backend)):
-            raise ValueError('Continuation architecture/backend/fusion must match the parent checkpoint')
+        if parent_meta['model']!='six_layer':
+            raise ValueError('Continuation requires a six-layer checkpoint')
         tokenizer=AutoTokenizer.from_pretrained(parent/'tokenizer',local_files_only=True)
-        if args.model=='six_layer':
-            six_config=SixLayerConfig.load(parent/'six_layer_config.json')
-        else:
-            backbone=BartForConditionalGeneration(BartConfig.from_pretrained(parent/'backbone_config',local_files_only=True))
-    elif args.model=='six_layer':
+        six_config=SixLayerConfig.load(parent/'six_layer_config.json')
+    else:
         tokenizer=(build_tokenizer if args.tiny else build_subword_tokenizer)(all_train,out/'tokenizer')
         six_config=SixLayerConfig(vocab_size=len(tokenizer),d_model=32 if args.tiny else args.d_model,
             attention_heads=args.attention_heads,ffn_dim=64 if args.tiny else args.ffn_dim,
             dropout=0. if args.tiny else args.dropout,max_positions=2*args.max_length+2,
             pad_token_id=tokenizer.pad_token_id,bos_token_id=tokenizer.bos_token_id,eos_token_id=tokenizer.eos_token_id)
-    elif args.tiny:
-        tokenizer=build_tokenizer(all_train,out/'tokenizer')
-        config=BartConfig(vocab_size=len(tokenizer),d_model=64,encoder_layers=1,decoder_layers=1,encoder_attention_heads=2,decoder_attention_heads=2,encoder_ffn_dim=128,decoder_ffn_dim=128,max_position_embeddings=args.max_length+8,pad_token_id=tokenizer.pad_token_id,bos_token_id=tokenizer.bos_token_id,eos_token_id=tokenizer.eos_token_id,decoder_start_token_id=tokenizer.eos_token_id,dropout=0.)
-        backbone=BartForConditionalGeneration(config)
-    else:
-        tokenizer=AutoTokenizer.from_pretrained(args.pretrained,local_files_only=args.local_files_only); tokenizer.padding_side='right'
-        backbone=BartForConditionalGeneration.from_pretrained(args.pretrained,local_files_only=args.local_files_only)
     tokenizer.padding_side='right'; tokenizer.save_pretrained(out/'tokenizer')
-    if args.model=='six_layer':
-        if 2*args.max_length>six_config.max_positions: raise ValueError('Continuation max-length exceeds saved position capacity')
-        six_config.save(out/'six_layer_config.json');model=SixLayerRewriter(six_config)
-    else:
-        backbone.config.save_pretrained(out/'backbone_config')
-        # Adapter initialization follows identical seeded backbone creation in both experiments.
-        model=backbone if args.model=='transformer' else HybridRewriter(backbone,args.fusion,args.backend)
+    if 2*args.max_length>six_config.max_positions: raise ValueError('Continuation max-length exceeds saved position capacity')
+    six_config.save(out/'six_layer_config.json');model=SixLayerRewriter(six_config)
     if parent:
         model.load_state_dict(torch.load(parent/'weights.pt',map_location='cpu',weights_only=True),strict=True)
     if args.reject_truncation:
@@ -110,7 +92,6 @@ def run(args):
                 for field in ['source','target']:
                     if len(tokenizer(row[field])['input_ids'])>args.max_length:
                         raise ValueError(f'{split} {row["id"]} {field} exceeds max-length; refusing silent truncation')
-    if args.model=='hybrid' and args.freeze_backbone: model.freeze_backbone()
     model.to(device)
     optimizer=torch.optim.AdamW([p for p in model.parameters() if p.requires_grad],lr=args.lr)
     scheduler=torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer,mode='min',factor=args.lr_drop_factor,patience=args.lr_patience,threshold=.001,threshold_mode='rel',min_lr=args.min_lr) if args.lr_scheduler=='plateau' else None
@@ -191,18 +172,15 @@ def run(args):
     inp=batch(val[:2],tokenizer,device,args.max_length)
     gen=model.generate(input_ids=inp['input_ids'],attention_mask=inp['attention_mask'],max_new_tokens=args.max_length,num_beams=1)
     predictions=[dict(id=r['id'],source=r['source'],reference=r['target'],prediction=p) for r,p in zip(val[:2],tokenizer.batch_decode(gen,skip_special_tokens=True))]
-    max_tokens=lambda k:max(len(tokenizer(r[k])['input_ids']) for r in train)
-    result={'model':args.model,'initialization':'random tiny BART' if args.tiny else args.pretrained,'backend':args.backend if args.model=='hybrid' else None,'fusion':args.fusion if args.model=='hybrid' else None,'seed':args.seed,'steps':args.steps,'train_pairs':len(train),'validation_pairs':len(val),'max_length':args.max_length,'batch_size':args.batch_size,'learning_rate':args.lr,'fixed_train_batch_loss_before':initial,'fixed_train_batch_loss_after':final,'validation_cross_entropy':vl,'seconds_training':elapsed,'peak_cuda_allocated_mib':torch.cuda.max_memory_allocated()/1024**2 if device.type=='cuda' else None,'parameters':sum(p.numel() for p in model.parameters()),'trainable_parameters':sum(p.numel() for p in model.parameters() if p.requires_grad),'train_truncated_sources':sum(len(tokenizer(r['source'])['input_ids'])>args.max_length for r in train),'train_truncated_targets':sum(len(tokenizer(r['target'])['input_ids'])>args.max_length for r in train),'device':str(device),'gpu':torch.cuda.get_device_name(device) if device.type=='cuda' else None,'torch':torch.__version__,'experiment_type':'pipeline smoke test, not a quality comparison' if args.tiny else 'fine-tuning','test_set_used':False,'args':vars(args)}
+    result={'model':'six_layer','seed':args.seed,'steps':args.steps,'train_pairs':len(train),'validation_pairs':len(val),'max_length':args.max_length,'batch_size':args.batch_size,'learning_rate':args.lr,'fixed_train_batch_loss_before':initial,'fixed_train_batch_loss_after':final,'validation_cross_entropy':vl,'seconds_training':elapsed,'peak_cuda_allocated_mib':torch.cuda.max_memory_allocated()/1024**2 if device.type=='cuda' else None,'parameters':sum(p.numel() for p in model.parameters()),'trainable_parameters':sum(p.numel() for p in model.parameters() if p.requires_grad),'train_truncated_sources':sum(len(tokenizer(r['source'])['input_ids'])>args.max_length for r in train),'train_truncated_targets':sum(len(tokenizer(r['target'])['input_ids'])>args.max_length for r in train),'device':str(device),'gpu':torch.cuda.get_device_name(device) if device.type=='cuda' else None,'torch':torch.__version__,'test_set_used':False,'args':vars(args)}
     result.update(steps=actual_steps,requested_steps=args.steps,final_step_validation_cross_entropy=final_vl,checkpoint_selection=args.checkpoint_selection,selected_step=best_step if args.checkpoint_selection=='best-validation' else actual_steps,best_recorded_validation_cross_entropy=best_value,final_learning_rate=optimizer.param_groups[0]['lr'],lr_scheduler=args.lr_scheduler,seconds_validation=validation_seconds,sampling=args.sampling,examples_seen=examples_seen,dataset_equivalent_passes=examples_seen/len(train),optimizer_reinitialized=True,parent_checkpoint=str(parent) if parent else None,parent_weights_sha256=file_hash(parent/'weights.pt') if parent else None,data_sha256={split:file_hash(Path(args.data)/(split+'.jsonl')) for split in ['train','validation']})
-    if parent: result['initialization']='local checkpoint: '+str(parent)
-    if args.model=='six_layer':
-        result.update(initialization=('local checkpoint: '+str(parent)) if parent else 'random six-layer model; training-only tokenizer',
-            backend='reference',layer_layout=list(model.layer_layout),sequence_layers=6,
-            conditional_generation='causal source prefix; target-only token loss',
-            experiment_type='pipeline smoke test, not a quality comparison' if args.tiny else 'six-layer synthetic-augmented exploratory training',
-            cross_entropy_comparability='Different tokenizer from BART; CE values are not directly comparable to historical BART CE.')
-        manifest=Path(args.data)/'manifest.json'
-        if manifest.exists():result['training_data_manifest_sha256']=file_hash(manifest)
+    result.update(initialization=('local checkpoint: '+str(parent)) if parent else 'random six-layer model; training-only tokenizer',
+        backend='reference',layer_layout=list(model.layer_layout),sequence_layers=6,
+        conditional_generation='causal source prefix; target-only token loss',
+        experiment_type='pipeline smoke test, not a quality comparison' if args.tiny else 'six-layer synthetic-augmented exploratory training',
+        cross_entropy_comparability='Compare CE only when tokenization and evaluation protocol match.')
+    manifest=Path(args.data)/'manifest.json'
+    if manifest.exists():result['training_data_manifest_sha256']=file_hash(manifest)
     result['validation_examples_max_new_tokens']=args.max_length
     torch.save(model.state_dict(),out/'weights.pt')
     for name,data in [('result.json',result),('training_log.json',log),('validation_log.json',validation_history),('validation_examples.json',predictions)]: (out/name).write_text(json.dumps(data,indent=2,ensure_ascii=False),encoding='utf8')
@@ -211,21 +189,33 @@ def run(args):
     return result
 
 def parser():
-    p=argparse.ArgumentParser(); p.add_argument('--model',choices=['transformer','hybrid','six_layer'],default='transformer'); p.add_argument('--tiny',action='store_true'); p.add_argument('--pretrained',default='facebook/bart-base'); p.add_argument('--backend',choices=['reference','official'],default='reference'); p.add_argument('--fusion',choices=['gated','residual','replace'],default='gated'); p.add_argument('--freeze-backbone',action='store_true'); p.add_argument('--data',default='data/processed'); p.add_argument('--output',required=True); p.add_argument('--steps',type=int,default=30); p.add_argument('--train-limit',type=int,default=64); p.add_argument('--val-limit',type=int,default=16); p.add_argument('--batch-size',type=int,default=4); p.add_argument('--max-length',type=int,default=128); p.add_argument('--lr',type=float,help='Default: tiny=1e-3, six-layer=3e-4, frozen hybrid=1e-4, full fine-tuning=2e-5'); p.add_argument('--seed',type=int,default=42); p.add_argument('--device'); p.add_argument('--log-every',type=int,default=1)
+    p=argparse.ArgumentParser(description=__doc__)
+    p.add_argument('--model',choices=['six_layer'],default='six_layer')
+    p.add_argument('--tiny',action='store_true',help='Use a small model and word-level tokenizer for pipeline checks')
+    p.add_argument('--data',default='data/academic-pairs-v1')
+    p.add_argument('--output',required=True)
+    p.add_argument('--steps',type=int,default=2000)
+    p.add_argument('--train-limit',type=int,default=0,help='0 uses the entire training split')
+    p.add_argument('--val-limit',type=int,default=0,help='0 uses the entire validation split')
+    p.add_argument('--batch-size',type=int,default=16)
+    p.add_argument('--max-length',type=int,default=192)
+    p.add_argument('--lr',type=float,help='Default: tiny=1e-3, otherwise 3e-4')
+    p.add_argument('--seed',type=int,default=42)
+    p.add_argument('--device')
+    p.add_argument('--log-every',type=int,default=100)
     p.add_argument('--d-model',type=int,default=192,help='Six-layer hidden width')
     p.add_argument('--attention-heads',type=int,default=4,help='Six-layer attention head count')
     p.add_argument('--ffn-dim',type=int,default=768,help='Six-layer Transformer feed-forward width')
     p.add_argument('--dropout',type=float,default=.1,help='Six-layer residual dropout')
-    p.add_argument('--eval-every',type=int,default=50,help='Validation interval in optimizer steps; 0 disables intermediate validation')
+    p.add_argument('--eval-every',type=int,default=250,help='Validation interval in optimizer steps; 0 disables intermediate validation')
     p.add_argument('--lr-scheduler',choices=['constant','plateau'],default='constant')
     p.add_argument('--lr-drop-factor',type=float,default=.5)
     p.add_argument('--lr-patience',type=int,default=1,help='Number of unimproved validation checks tolerated before reducing LR')
     p.add_argument('--min-lr',type=float,default=1e-6)
-    p.add_argument('--local-files-only',action='store_true',help='Load pretrained assets from the local cache without network checks')
     p.add_argument('--init-checkpoint',help='Initialize matching model, tokenizer and config from local weights; start a new optimizer')
-    p.add_argument('--checkpoint-selection',choices=['final','best-validation'],default='final',help='Best validation includes step 0, so a harmful continuation can select unchanged parent weights')
+    p.add_argument('--checkpoint-selection',choices=['final','best-validation'],default='best-validation',help='Best validation includes step 0, so a harmful continuation can select unchanged parent weights')
     p.add_argument('--early-stopping-patience',type=int,default=0,help='Stop after this many unimproved validation checks; 0 disables')
-    p.add_argument('--sampling',choices=['random-batches','shuffle-epochs'],default='random-batches')
+    p.add_argument('--sampling',choices=['random-batches','shuffle-epochs'],default='shuffle-epochs')
     p.add_argument('--reject-truncation',action='store_true')
     p.add_argument('--overwrite',action='store_true',help='Explicitly allow replacing an existing output checkpoint')
     return p

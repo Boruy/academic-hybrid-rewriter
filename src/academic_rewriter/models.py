@@ -1,4 +1,4 @@
-"""BART rewriter with a selective SSM refinement adapter.
+"""Selective state-space mixer used by the six-layer rewriter.
 ReferenceMamba implements the Mamba-1 recurrence in plain PyTorch for verification.
 It is intentionally sequential and is NOT the official optimized CUDA kernel.
 """
@@ -6,7 +6,6 @@ import math
 import torch
 from torch import nn
 from torch.nn import functional as F
-from transformers.modeling_outputs import BaseModelOutput
 
 class ReferenceMamba(nn.Module):
     def __init__(self, d_model, d_state=8, expand=2, d_conv=4):
@@ -39,33 +38,3 @@ class ReferenceMamba(nn.Module):
             outputs.append(y.to(hidden.dtype))
         y=torch.stack(outputs,dim=1)*F.silu(z)
         return self.out_proj(y)
-
-class HybridRewriter(nn.Module):
-    def __init__(self, backbone, fusion='gated', backend='reference', d_state=8):
-        super().__init__(); self.backbone=backbone; self.fusion=fusion; self.backend=backend; self.d_state=d_state
-        d=backbone.config.d_model; self.norm=nn.LayerNorm(d)
-        if backend=='reference': self.mixer=ReferenceMamba(d,d_state=d_state)
-        elif backend=='official':
-            from mamba_ssm import Mamba
-            self.mixer=Mamba(d_model=d,d_state=d_state,d_conv=4,expand=2)
-        else: raise ValueError('backend must be reference or official')
-        self.gate=nn.Linear(2*d,d) if fusion=='gated' else None
-        if fusion not in {'gated','residual','replace'}: raise ValueError('Unknown fusion')
-        if self.gate is not None: nn.init.constant_(self.gate.bias,-2)
-    def encode(self,input_ids,attention_mask):
-        if self.backend=='official' and torch.any(attention_mask[:,1:] > attention_mask[:,:-1]):
-            raise ValueError('Official causal mixer requires right padding')
-        h=self.backbone.get_encoder()(input_ids=input_ids,attention_mask=attention_mask,return_dict=True).last_hidden_state
-        n=self.norm(h); n=n*attention_mask.unsqueeze(-1)
-        m=self.mixer(n,attention_mask) if self.backend=='reference' else self.mixer(n)
-        if self.fusion=='gated': fused=h+torch.sigmoid(self.gate(torch.cat([h,m],-1)))*m
-        elif self.fusion=='residual': fused=h+m
-        else: fused=m
-        return BaseModelOutput(last_hidden_state=fused*attention_mask.unsqueeze(-1))
-    def forward(self,input_ids,attention_mask,labels=None,**kwargs):
-        return self.backbone(encoder_outputs=self.encode(input_ids,attention_mask),attention_mask=attention_mask,labels=labels,**kwargs)
-    @torch.no_grad()
-    def generate(self,input_ids,attention_mask,**kwargs):
-        return self.backbone.generate(encoder_outputs=self.encode(input_ids,attention_mask),attention_mask=attention_mask,**kwargs)
-    def freeze_backbone(self):
-        for p in self.backbone.parameters(): p.requires_grad=False
