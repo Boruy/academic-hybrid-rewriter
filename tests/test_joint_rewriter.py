@@ -27,16 +27,47 @@ def write_rows(path, rows):
 
 
 class JointRewriterTests(unittest.TestCase):
-    def test_preexisting_joint_checkpoints_keep_their_unfused_layout(self):
+    def test_preexisting_joint_checkpoints_keep_their_saved_layout(self):
         with tempfile.TemporaryDirectory() as temporary:
             path = Path(temporary)/'six_layer_config.json'
             config = dict(vocab_size=24, d_model=16, depth='joint', word_replacements=word_replacements(WORDS))
-            for saved, layers in [(config, (2, 4, 6)), (dict(config, prediction_stages=4), (1, 2, 4, 6))]:
-                with self.subTest(layers=layers):
+            saved_layouts = [
+                (config, (2, 4, 6), False),
+                (dict(config, prediction_stages=4), (1, 2, 4, 6), False),
+                (dict(config, prediction_stages=4, fuse_stage_outputs=True), (1, 2, 4, 6), True),
+            ]
+            for saved, layers, fused in saved_layouts:
+                with self.subTest(layers=layers, fused=fused):
                     path.write_text(json.dumps(saved), encoding='utf8')
                     model = SixLayerRewriter(SixLayerConfig.load(path))
                     self.assertEqual(model.prediction_stage_layers, layers)
-                    self.assertIsNone(model.final_fusion)
+                    self.assertEqual(model.final_fusion is not None, fused)
+                    self.assertFalse(model.config.candidate_guidance)
+                    self.assertNotIn('word_candidate_embeddings', model.state_dict())
+
+    def test_candidate_guide_weights_replacements_at_their_subword_positions(self):
+        model = SixLayerRewriter(SixLayerConfig(
+            vocab_size=24, d_model=16, attention_heads=2, ffn_dim=32, depth='joint',
+            prediction_stages=4, candidate_guidance=True, word_replacements=word_replacements(WORDS)))
+        probabilities = torch.tensor([[.25, .5, .25], [.25, .25, .5], [1., 0., 0.]])
+        rows = torch.tensor([0, 0, 1])
+        spans = torch.tensor([[0, 1, 1, 0, 0, 0, 0],
+                              [0, 0, 0, 0, 1, 0, 0],
+                              [0, 1, 0, 0, 0, 0, 0]], dtype=torch.bool)
+        text_mask = torch.tensor([[0, 1, 1, 1, 1, 1, 0], [0, 1, 0, 0, 0, 0, 0]], dtype=torch.bool)
+        with torch.no_grad():
+            model.word_candidate_embeddings[0, 0] = 2.
+            model.word_candidate_embeddings[1, 1] = 4.
+            guide = model._make_word_guide(probabilities.log(), rows, spans, text_mask)
+
+        self.assertEqual(guide.shape, (2, 7, 17))
+        torch.testing.assert_close(guide[0, [1, 4], 0], torch.full((2,), .75))
+        self.assertGreater(guide[0, 3, 0].item(), 0.)  # Boundary guidance can reach a neighbor.
+        expected = torch.zeros(2, 7, 16)
+        expected[0, 1:3, :2] = torch.tensor([1., 1.])
+        expected[0, 4, :2] = torch.tensor([.5, 2.])
+        torch.testing.assert_close(guide[..., 1:], expected)
+        self.assertEqual(guide[1].count_nonzero().item(), 0)  # KEEP has no candidate contribution.
 
     def test_final_loss_reaches_every_stage_projection_without_word_guides(self):
         torch.manual_seed(13)
@@ -60,25 +91,30 @@ class JointRewriterTests(unittest.TestCase):
             model = SixLayerRewriter(SixLayerConfig(
                 vocab_size=len(tokenizer), d_model=16, attention_heads=2, ffn_dim=32,
                 dropout=0., max_positions=48, depth='joint', prediction_stages=4,
+                fuse_stage_outputs=True, candidate_guidance=True,
                 word_replacements=word_replacements(WORDS)))
+            with torch.no_grad():
+                model.word_candidate_embeddings[0, 0] = .1
+                model.word_candidate_embeddings[1, 1] = .2
             task = WordTask(model, tokenizer, 'cpu', 20)
             inputs = batch(WORDS[:2], tokenizer, 'cpu', 20, task)
             guidance = inputs['word_guidance']
-            self.assertEqual(guidance.size(-1), 3)
-            self.assertGreater(guidance.sum().item(), 0.)
+            self.assertEqual(guidance.shape, (*inputs['input_ids'].shape, 3, 1 + model.config.d_model))
+            self.assertGreater(guidance[..., 0].sum().item(), 0.)
+            self.assertGreater(guidance[..., 1:].count_nonzero().item(), 0)
             self.assertEqual(guidance[:, 0].count_nonzero().item(), 0)  # Ignore the BOS position.
             different_targets = [dict(row, target='Unrelated reference.') for row in WORDS[:2]]
             torch.testing.assert_close(batch(different_targets, tokenizer, 'cpu', 20, task)['word_guidance'],
                                        guidance)
             earlier_stage_weights = tuple(model.mid_predictions[layer][0].weight for layer in ('1', '2'))
-            stage_gradients = torch.autograd.grad(guidance[..., 2].sum(), earlier_stage_weights, retain_graph=True)
+            stage_gradients = torch.autograd.grad(guidance[..., 2, 0].sum(), earlier_stage_weights, retain_graph=True)
             for gradient in stage_gradients:
                 self.assertTrue(torch.isfinite(gradient).all())
                 self.assertGreater(gradient.abs().sum().item(), 0.)
             losses = model.sequence_losses(**inputs)
             self.assertEqual(set(losses), {'medium', 'deep'})
-            gradients = torch.autograd.grad(sum(losses.values()),
-                                            (model.word_head[-1].weight, model.word_fusion[-1].weight))
+            gradients = torch.autograd.grad(losses['deep'], (model.word_head[-1].weight,
+                                            model.word_fusion[-1].weight, model.word_candidate_embeddings))
             for gradient in gradients:
                 self.assertTrue(torch.isfinite(gradient).all())
                 self.assertGreater(gradient.abs().sum().item(), 0.)
@@ -91,37 +127,44 @@ class JointRewriterTests(unittest.TestCase):
             self.assertEqual(len(edits), 1)
 
     def test_cached_decoding_uses_the_guides_for_its_stages(self):
-        torch.manual_seed(8)
-        model = SixLayerRewriter(SixLayerConfig(
-            vocab_size=24, d_model=16, attention_heads=2, ffn_dim=32, dropout=0., depth='joint', prediction_stages=4,
-            fuse_stage_outputs=True, word_replacements=word_replacements(WORDS))).eval()
         tokens = torch.tensor([[1, 4, 5, 2, 1, 6, 2]])
         mask = torch.ones_like(tokens)
         segments = torch.tensor([[0, 0, 0, 0, 1, 1, 1]])
-        guidance = torch.zeros(1, tokens.size(1), 3)
-        guidance[0, 1:3] = torch.tensor([[.5, .1, .3], [.2, .7, .4]])
-        with torch.no_grad():
-            for depth, count in NEURAL_DEPTHS.items():
-                with self.subTest(depth=depth):
-                    expected = model.sequence_logits(tokens, mask, segments, depth=depth, word_guidance=guidance)
-                    plain = model.sequence_logits(tokens, mask, segments, depth=depth)
-                    self.assertFalse(torch.allclose(expected, plain))
-                    for layer, channel in model.word_guide_channels.items():
-                        only = torch.zeros_like(guidance)
-                        only[..., channel] = guidance[..., channel]
-                        isolated = model.sequence_logits(tokens, mask, segments, depth=depth, word_guidance=only)
-                        if layer < count:
-                            self.assertFalse(torch.allclose(isolated, plain))
-                        else:
-                            torch.testing.assert_close(isolated, plain)
-                    states = [None] * count
-                    for position in range(tokens.size(1)):
-                        actual, states = model.step(tokens[:, position], torch.tensor([position]),
-                                                    segments[:, position], mask[:, position].bool(), states,
-                                                    depth=depth, word_guidance=guidance[:, position])
-                        torch.testing.assert_close(actual, expected[:, position], atol=4e-6, rtol=4e-5)
-        with self.assertRaisesRegex(ValueError, 'only the fused final rewrite'):
-            model.generate(tokens, mask, depth='medium', max_new_tokens=1)
+        signals = torch.zeros(1, tokens.size(1), 3)
+        signals[0, 1:3] = torch.tensor([[.5, .1, .3], [.2, .7, .4]])
+        for candidate_guidance in (False, True):
+            torch.manual_seed(8)
+            model = SixLayerRewriter(SixLayerConfig(
+                vocab_size=24, d_model=16, attention_heads=2, ffn_dim=32, dropout=0., depth='joint',
+                prediction_stages=4, fuse_stage_outputs=True, candidate_guidance=candidate_guidance,
+                word_replacements=word_replacements(WORDS))).eval()
+            guidance = signals
+            if candidate_guidance:
+                # Leave location scores at zero to isolate the candidate residual.
+                guidance = signals.new_zeros((*signals.shape, 1 + model.config.d_model))
+                guidance[..., 1] = signals
+            with torch.no_grad():
+                for depth, count in NEURAL_DEPTHS.items():
+                    with self.subTest(depth=depth, candidate_guidance=candidate_guidance):
+                        expected = model.sequence_logits(tokens, mask, segments, depth=depth, word_guidance=guidance)
+                        plain = model.sequence_logits(tokens, mask, segments, depth=depth)
+                        self.assertFalse(torch.allclose(expected, plain))
+                        for layer, channel in model.word_guide_channels.items():
+                            only = torch.zeros_like(guidance)
+                            only[:, :, channel] = guidance[:, :, channel]
+                            isolated = model.sequence_logits(tokens, mask, segments, depth=depth, word_guidance=only)
+                            if layer < count:
+                                self.assertFalse(torch.allclose(isolated, plain))
+                            else:
+                                torch.testing.assert_close(isolated, plain)
+                        states = [None] * count
+                        for position in range(tokens.size(1)):
+                            actual, states = model.step(tokens[:, position], torch.tensor([position]),
+                                                        segments[:, position], mask[:, position].bool(), states,
+                                                        depth=depth, word_guidance=guidance[:, position])
+                            torch.testing.assert_close(actual, expected[:, position], atol=4e-6, rtol=4e-5)
+            with self.assertRaisesRegex(ValueError, 'only the fused final rewrite'):
+                model.generate(tokens, mask, depth='medium', max_new_tokens=1)
 
     def test_one_training_run_exports_only_the_final_rewrite_and_optional_word_scores(self):
         with tempfile.TemporaryDirectory() as temporary:
@@ -148,6 +191,8 @@ class JointRewriterTests(unittest.TestCase):
             self.assertFalse(trained['test_set_used'])
             self.assertEqual(trained['rewrite_modes'], ['final'])
             self.assertTrue(trained['fuse_stage_outputs'])
+            self.assertTrue(trained['candidate_guidance'])
+            self.assertTrue(metrics['candidate_guidance'])
             self.assertEqual(trained['validation_cross_entropy'], trained['validation_cross_entropy_by_depth']['deep'])
             self.assertEqual(trained['prediction_stage_layers'], [1, 2, 4, 6])
             self.assertEqual(metrics['prediction_stage_layers'], [1, 2, 4, 6])

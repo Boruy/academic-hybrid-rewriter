@@ -15,7 +15,12 @@ LexiFAR trains all four stages jointly. The first three predictions provide word
 
 [Open the LexiFAR architecture diagram as an SVG](figures/LexiFAR_Architecture.svg).
 
-Each stage has a `MidFPred` projection with two linear layers and GELU. The shared single-word edit module takes the place of CDEA. At P1, P2 and P3 it reads a word span and its context from the current source features. It projects edit probabilities onto the source subwords and uses one-dimensional dilation minus erosion to highlight boundaries. Each guide reweights source features before the next stage. The guides use only the input sentence during training and inference.
+Each stage has a `MidFPred` projection with two linear layers and GELU. The shared single-word edit module takes the place of CDEA. At P1, P2 and P3 it reads the final subword of the focus word and the sentence-end representation. It predicts probabilities for `KEEP` and the word's replacements recorded in the training data. The guide to the next stage has two components.
+
+- **Location.** Map `1 − P(KEEP)` to the source subwords and use one-dimensional dilation minus erosion to emphasize the local boundaries. The resulting weight scales a learned residual on the source features.
+- **Replacement.** Multiply each allowed replacement's learned vector by its probability and sum the vectors. Add this residual at the source word's aligned subwords. Only replacement labels have vectors, so `KEEP` contributes zero. The vectors start at zero and are learned in the joint run.
+
+For example, an edit to `get access` can pass a vector weighted toward `gain`, while an edit to `get estimates` can pass a vector weighted toward `obtain`. Both components use the input sentence during training and cached decoding. The original source tokens remain in the prefix.
 
 At every token position, the model concatenates the four projected features F1–F4. A learned `4d → d` projection produces the fused feature for the vocabulary head. The same fusion runs in the training forward pass and cached generation.
 
@@ -27,13 +32,13 @@ Run from the repository root in PowerShell. Use a fresh checkpoint directory for
 
 ```powershell
 $python = '.\.venv\Scripts\python.exe'
-$checkpoint = 'runs/six_layer_joint_v3'
+$checkpoint = 'runs/six_layer_joint_v4'
 $sentence = 'The proposed method gets better results than the baseline.'
 & $python scripts/train_six_layer.py --output $checkpoint
 & $python -m academic_rewriter.rewrite --checkpoint $checkpoint --text $sentence
 ```
 
-Joint checkpoints record the stage layout, feature fusion setting and replacement vocabulary in `six_layer_config.json`. Earlier checkpoints keep their saved layout and output options. Start a fresh run to train the fused layout. The single-sentence command returns the source if the rewrite is empty, lacks an end token or changes the numeric strings.
+Joint checkpoints record the stage layout, feature fusion, candidate guidance and replacement vocabulary in `six_layer_config.json`. Earlier joint checkpoints without a candidate setting use position guides. Start a fresh run to train the new candidate vectors. The single-sentence command returns the source if the rewrite is empty, lacks an end token or changes the numeric strings.
 
 ## Test the fused rewrite
 

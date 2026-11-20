@@ -89,6 +89,8 @@ def run(args):
         six_config=SixLayerConfig.load(parent/'six_layer_config.json')
         if args.depth is not None and args.depth != six_config.depth:
             raise ValueError(f'Continuation requires the saved depth ({six_config.depth})')
+        if args.word_guidance is not None and (args.word_guidance == 'candidates') != six_config.candidate_guidance:
+            raise ValueError('Continuation requires the saved word guidance')
     depth = six_config.depth if parent else args.depth or 'joint'
     word_rows = []
     word_hash = None
@@ -105,7 +107,8 @@ def run(args):
             dropout=0. if args.tiny else args.dropout,max_positions=2*args.max_length+2,
             pad_token_id=tokenizer.pad_token_id,bos_token_id=tokenizer.bos_token_id,
             eos_token_id=tokenizer.eos_token_id,depth=depth,word_replacements=replacements,
-            prediction_stages=4 if depth == 'joint' else 3, fuse_stage_outputs=depth == 'joint')
+            prediction_stages=4 if depth == 'joint' else 3, fuse_stage_outputs=depth == 'joint',
+            candidate_guidance=depth == 'joint' and args.word_guidance != 'position')
     tokenizer.padding_side='right'; tokenizer.save_pretrained(out/'tokenizer')
     if 2*args.max_length>six_config.max_positions: raise ValueError('Continuation max-length exceeds saved position capacity')
     six_config.save(out/'six_layer_config.json');model=SixLayerRewriter(six_config)
@@ -253,6 +256,7 @@ def run(args):
         result.update(word_training_pairs=len(word_rows), word_training_data_sha256=word_hash,
                       rewrite_modes=['final'] if fused else ['shallow', *model.sentence_depths],
                       fuse_stage_outputs=fused,
+                      candidate_guidance=six_config.candidate_guidance,
                       prediction_stage_layers=list(model.prediction_stage_layers),
                       objective_weights=({'word': args.word_loss_weight, 'aux_sentence': .5, 'final_sentence': .5}
                                          if fused else {'shallow': args.word_loss_weight, 'medium': .5, 'deep': .5}),
@@ -286,6 +290,8 @@ def parser():
                    help='New runs default to joint; continuations use the saved depth')
     p.add_argument('--word-data', default='data/word-formality-v1/train.jsonl', help='Word training pairs for the joint model')
     p.add_argument('--word-loss-weight', type=float, default=.25, help='Weight on the joint single-word cross-entropy')
+    p.add_argument('--word-guidance', choices=['position', 'candidates'],
+                   help='Fresh joint runs default to candidates; continuations use the saved setting')
     p.add_argument('--d-model',type=int,default=192,help='Six-layer hidden width')
     p.add_argument('--attention-heads',type=int,default=4,help='Six-layer attention head count')
     p.add_argument('--ffn-dim',type=int,default=768,help='Six-layer Transformer feed-forward width')

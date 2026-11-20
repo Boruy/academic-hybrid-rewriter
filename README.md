@@ -2,7 +2,7 @@
 
 [Project overview in Chinese](docs/Project_Overview_ZH.md)
 
-**LexiFAR** (Lexically Guided Feature Fusion for Academic Rewriting) revises English research sentences. A shared word edit module guides its four stages, and their features fuse into a single rewritten sentence. See the [LexiFAR architecture](docs/LexiFAR_Architecture.md).
+**LexiFAR** (Lexically Guided Feature Fusion for Academic Rewriting) revises English research sentences. A shared word edit module passes edit locations and probability-weighted replacement vectors between stages. Features from all four stages fuse into a single rewritten sentence. See the [LexiFAR architecture](docs/LexiFAR_Architecture.md).
 
 The model has **2 LSTM + 2 Transformer + 2 Mamba** sequence blocks and trains from scratch with a training-only tokenizer. See [LexiFAR model and training](docs/LexiFAR_Training.md) for the layer configuration and commands.
 
@@ -39,8 +39,8 @@ The prepared dataset already exists: **12,491 training pairs** (12,000 synthetic
 Use a fresh output directory for each run:
 
 ```powershell
-.\.venv\Scripts\python.exe scripts/train_six_layer.py --output runs/six_layer_joint_v3 --print-command
-.\.venv\Scripts\python.exe scripts/train_six_layer.py --output runs/six_layer_joint_v3
+.\.venv\Scripts\python.exe scripts/train_six_layer.py --output runs/six_layer_joint_v4 --print-command
+.\.venv\Scripts\python.exe scripts/train_six_layer.py --output runs/six_layer_joint_v4
 ```
 
 Each update learns from both training corpora and combines word supervision, an auxiliary sentence objective and the fused final sentence objective. The launcher verifies the data and generator hashes. The settings use width 192, four attention heads, batch size 16, LR 3e-4, up to 2,000 updates, validation every 250 updates, best-validation checkpoint selection and early stopping. Existing weights are protected against accidental replacement.
@@ -48,8 +48,8 @@ Each update learns from both training corpora and combines word supervision, an 
 ## Test and export final predictions
 
 ```powershell
-.\.venv\Scripts\python.exe -m academic_rewriter.test --checkpoint runs/six_layer_joint_v3 --split validation --limit 0
-.\.venv\Scripts\python.exe -m academic_rewriter.test --checkpoint runs/six_layer_joint_v3 --split test --limit 0
+.\.venv\Scripts\python.exe -m academic_rewriter.test --checkpoint runs/six_layer_joint_v4 --split validation --limit 0
+.\.venv\Scripts\python.exe -m academic_rewriter.test --checkpoint runs/six_layer_joint_v4 --split test --limit 0
 ```
 
 Both commands default to `data/academic-pairs-v1`, batch size 8 and a budget of 192 new tokens. `--limit 0` evaluates every row. Results are written to `CHECKPOINT/evaluation/SPLIT-192/`:

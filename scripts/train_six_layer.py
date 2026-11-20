@@ -15,6 +15,8 @@ def main():
     parser.add_argument('--output', help='New checkpoint directory; existing weights are protected')
     parser.add_argument('--depth', choices=['joint', 'medium', 'deep'],
                         help='Default is joint; medium and deep reproduce legacy single-output runs')
+    parser.add_argument('--word-guidance', choices=['position', 'candidates'],
+                        help='Override the joint word guidance in the experiment config')
     parser.add_argument('--print-command', action='store_true')
     args = parser.parse_args()
     config = json.loads((ROOT/args.config).read_text(encoding='utf8'))
@@ -37,6 +39,8 @@ def main():
     settings = dict(config['settings'], model=config['model'], data=config['data'], output=config['output'])
     if args.depth:
         settings['depth'] = args.depth
+    if args.word_guidance:
+        settings['word_guidance'] = args.word_guidance
     if settings.get('depth', 'joint') == 'joint' and 'word_data_sha256' in config:
         word_path = ROOT/settings['word_data']
         if hashlib.sha256(word_path.read_bytes()).hexdigest() != config['word_data_sha256']:

@@ -154,11 +154,12 @@ class WordTask:
         examples = [self._context(texts[index], span) for index, span in candidates]
         logits = self._logits(examples)
         rows, aligned = rows.to(self.device), aligned.to(self.device)
-        guides = torch.stack([word_boundary_guide(output, rows, aligned, text_mask) for output in logits], dim=-1)
+        guides = torch.stack([word_boundary_guide(1 - output.softmax(-1)[:, 0], rows, aligned, text_mask)
+                              for output in logits], dim=-1)
         return candidates, logits, guides
 
     def guidance(self, texts, encoding):
-        """Align source-only edit scores to subwords and highlight their local boundaries."""
+        """Build source-only boundary guides and aligned candidate vectors for the saved layout."""
         return self._source_predictions(texts, encoding)[2]
 
     @torch.no_grad()

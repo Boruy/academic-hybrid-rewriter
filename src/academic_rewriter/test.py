@@ -148,7 +148,8 @@ def run(args):
     else:
         metrics = by_depth[depths[0]]
         if fused:
-            metrics.update(fuse_stage_outputs=True, prediction_stage_layers=list(model.prediction_stage_layers),
+            metrics.update(fuse_stage_outputs=True, candidate_guidance=model.config.candidate_guidance,
+                           prediction_stage_layers=list(model.prediction_stage_layers),
                            copy_baseline=evaluate([dict(row, prediction=row['source']) for row in predictions['deep']]))
             if word_rows is not None:
                 metrics['word_test'] = evaluate_lexical(word_task, word_rows)

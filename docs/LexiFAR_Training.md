@@ -13,7 +13,7 @@ The model contains exactly **six sequence layers**:
 | 5 | Mamba block | Selective state-space sequence mixing |
 | 6 | Mamba block | Final selective sequence mixing |
 
-Each block has normalization and a residual path. Token, position and source/target segment embeddings precede the blocks. The joint model has prediction projections after blocks 1, 2, 4 and 6. A shared word edit head and residual fusion guide the three transitions. For the final prediction, the four projected features are concatenated at the same token position and projected back to the hidden width. The result uses a vocabulary projection tied to the token embeddings. There is no pretrained encoder or decoder.
+Each block has normalization and a residual path. Token, position and source/target segment embeddings precede the blocks. The joint model has prediction projections after blocks 1, 2, 4 and 6. A shared word edit head supplies boundary weights and probability-weighted replacement vectors for the three transitions. For the final prediction, the four projected features are concatenated at the same token position and projected back to the hidden width. The result uses a vocabulary projection tied to the token embeddings. There is no pretrained encoder or decoder.
 
 ## Conditional generation
 
@@ -38,21 +38,21 @@ The [dataset card](Dataset_Card.md) documents real-data provenance and preserved
 Run commands yourself from the repository root. Project code is not executed by the agent unless explicitly requested.
 
 ```powershell
-.\.venv\Scripts\python.exe scripts/train_six_layer.py --output runs/six_layer_joint_v3 --print-command
-.\.venv\Scripts\python.exe scripts/train_six_layer.py --output runs/six_layer_joint_v3
+.\.venv\Scripts\python.exe scripts/train_six_layer.py --output runs/six_layer_joint_v4 --print-command
+.\.venv\Scripts\python.exe scripts/train_six_layer.py --output runs/six_layer_joint_v4
 ```
 
 The launcher reads `configs/six_layer_experiment.json` and checks the generator and data fingerprints before training. It uses width 192, four attention heads, feed-forward width 768, dropout 0.1, batch 16, LR 3e-4, seed 42, source/target limits of 192 tokens and up to 2,000 joint updates. Sentence batches are drawn from shuffled epochs and word batches are sampled from the training word corpus. Sentence truncation is rejected.
 
-Validation runs every 250 updates and monitors the fused final token cross-entropy. The best-validation checkpoint includes step zero, and early stopping follows four unimproved checks. The checkpoint directory stores `weights.pt`, the tokenizer and a config with the saved stage layout and fusion setting. The training and validation logs record auxiliary losses where labels are available.
+Validation runs every 250 updates and monitors the fused final token cross-entropy. The best-validation checkpoint includes step zero, and early stopping follows four unimproved checks. The checkpoint directory stores `weights.pt`, the tokenizer and a config with the saved stage layout, fusion and candidate guidance settings. The training and validation logs record auxiliary losses where labels are available.
 
 Use a new output directory for another run. `--init-checkpoint` on `academic_rewriter.run` continues the saved architecture and tokenizer with a fresh optimizer. A joint continuation requires the saved word replacement vocabulary. Existing single-depth checkpoints remain available in their original mode.
 
 ## Evaluate the entire split
 
 ```powershell
-.\.venv\Scripts\python.exe -m academic_rewriter.test --checkpoint runs/six_layer_joint_v3 --split validation --batch-size 8 --max-new-tokens 192 --limit 0
-.\.venv\Scripts\python.exe -m academic_rewriter.test --checkpoint runs/six_layer_joint_v3 --split test --batch-size 8 --max-new-tokens 192 --limit 0
+.\.venv\Scripts\python.exe -m academic_rewriter.test --checkpoint runs/six_layer_joint_v4 --split validation --batch-size 8 --max-new-tokens 192 --limit 0
+.\.venv\Scripts\python.exe -m academic_rewriter.test --checkpoint runs/six_layer_joint_v4 --split test --batch-size 8 --max-new-tokens 192 --limit 0
 ```
 
 The default data directory is `data/academic-pairs-v1`. A zero limit evaluates every row: 98 validation cases or 87 test cases. Only completed checkpoints with `result.json`, `six_layer_config.json`, `tokenizer/` and `weights.pt` can be evaluated.
@@ -60,6 +60,13 @@ The default data directory is `data/academic-pairs-v1`. A zero limit evaluates e
 Each command writes `CHECKPOINT/evaluation/SPLIT-192/predictions.csv`, `predictions.jsonl` and `metrics.json`. With a fused checkpoint, each row aligns the source, human reference and final `prediction`. JSONL adds observed budget hits and source/reference truncation. A budget hit alone does not prove a sentence is incomplete.
 
 Repeated evaluation replaces files in its selected output directory. Pass `--output runs/evaluation_v2` to preserve an earlier evaluation. Checkpoints and predictions are local runtime artifacts and are ignored by Git.
+
+To measure the effect of the replacement vectors, train a position-only checkpoint with the same data and seed, then evaluate it with the same decode settings. `metrics.json` records `candidate_guidance`.
+
+```powershell
+.\.venv\Scripts\python.exe scripts/train_six_layer.py --word-guidance position --output runs/six_layer_joint_v4_position
+.\.venv\Scripts\python.exe -m academic_rewriter.test --checkpoint runs/six_layer_joint_v4_position --split test --limit 0
+```
 
 ## Data reproduction and checks
 
@@ -71,7 +78,7 @@ The existing data and generator hashes are frozen. The following generator comma
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts/verify_integrity.ps1
 ```
 
-For a changed corpus, use a new configuration and output directory that point to its new manifest. Tests cover causal isolation, cached/full-logit agreement, padding, target-only loss, all-block gradients, checkpoint reload/continuation, full prediction exports and synthetic-data isolation. These commands remain pending until the user runs them.
+For a changed corpus, use a new configuration and output directory that point to its new manifest. Tests cover causal isolation, candidate alignment and gradients, cached/full-logit agreement, padding, target-only loss, checkpoint reload and continuation, full prediction exports and synthetic-data isolation. These commands remain pending until the user runs them.
 
 ## Evidence boundaries
 

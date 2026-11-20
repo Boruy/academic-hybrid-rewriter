@@ -4,7 +4,8 @@
   <desc id="diagram-description">An English sentence is tokenized and runs through two sequential LSTM stages,
     two Transformer blocks and two Mamba blocks. Each of the four stages has a MidFPred projection.
     P1 locates word edits, P2 predicts single-word changes, and P3 adds an auxiliary sentence loss and
-    refined word scores. Three input-only guides feed the next stage. The projected features F1, F2,
+    refined word scores. Three guides combine word boundary weights and probability-weighted replacement
+    vectors from the source sentence. Each guide updates the next stage. The projected features F1, F2,
     F3 and F4 are concatenated at each token position and projected into P4, the only final sentence output.
     Word and sentence cross-entropies form a single training objective.</desc>
   <defs>
@@ -198,24 +199,24 @@
     <text x="637" y="303" class="gate-title centered">Word edit</text>
     <text x="637" y="327" class="gate-title centered">fusion</text>
     <rect x="575" y="508" width="124" height="76" rx="10" class="guide" />
-    <text x="637" y="539" class="guide-title centered">E1 boundary</text>
-    <text x="637" y="562" class="guide-detail centered">1D max − min</text>
+    <text x="637" y="539" class="guide-title centered">E1 guide</text>
+    <text x="637" y="562" class="guide-detail centered">Span + vector</text>
   </g>
   <g id="e2" aria-label="E2 word feedback">
     <rect x="993" y="267" width="124" height="84" rx="12" class="gate" />
     <text x="1055" y="303" class="gate-title centered">Word edit</text>
     <text x="1055" y="327" class="gate-title centered">fusion</text>
     <rect x="993" y="508" width="124" height="76" rx="10" class="guide" />
-    <text x="1055" y="539" class="guide-title centered">E2 boundary</text>
-    <text x="1055" y="562" class="guide-detail centered">1D max − min</text>
+    <text x="1055" y="539" class="guide-title centered">E2 guide</text>
+    <text x="1055" y="562" class="guide-detail centered">Span + vector</text>
   </g>
   <g id="e3" aria-label="E3 word feedback">
     <rect x="1411" y="267" width="124" height="84" rx="12" class="gate" />
     <text x="1473" y="303" class="gate-title centered">Word edit</text>
     <text x="1473" y="327" class="gate-title centered">fusion</text>
     <rect x="1411" y="508" width="124" height="76" rx="10" class="guide" />
-    <text x="1473" y="539" class="guide-title centered">E3 boundary</text>
-    <text x="1473" y="562" class="guide-detail centered">1D max − min</text>
+    <text x="1473" y="539" class="guide-title centered">E3 guide</text>
+    <text x="1473" y="562" class="guide-detail centered">Span + vector</text>
   </g>
 
   <g id="p4" aria-label="Stage fusion and sole final prediction">
@@ -238,5 +239,5 @@
     <text x="82" y="1047" class="formula">L = 0.50 CE(P3 auxiliary) + 0.50 CE(P4 final) + 0.25 mean(CE(P1 word), CE(P2 word), CE(P3 word))</text>
     <text x="82" y="1079" class="detail">CE = cross-entropy. Word labels and sentence references contribute to the same optimizer update.</text>
   </g>
-  <text x="60" y="1146" class="detail">The shared word edit module replaces CDEA. Its boundary guides use source text only.</text>
+  <text x="60" y="1146" class="detail">Each guide uses a boundary weight and a probability-weighted replacement vector aligned to the source word.</text>
 </svg>

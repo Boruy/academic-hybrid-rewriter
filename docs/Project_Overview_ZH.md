@@ -17,7 +17,12 @@
 | P3 | 两层 Transformer | 通过辅助句级预测学习重述，并细化词分数以生成 E3。 |
 | P4 | 融合 F1、F2、F3 与两层 Mamba 后的 F4 | 解码为唯一的最终改写句子。 |
 
-第 1、2、4、6 个序列块后各有一个 MidFPred 投影。词级模块取代 CDEA。前三个预测点把修改概率投到原文的子词位置，通过一维膨胀减腐蚀提取词边界，以引导下一阶段。每个 token 位置的 F1–F4 特征拼接后，用一层可学习的 `4d → d` 投影融合成 P4 的输入。训练和缓存解码使用同一融合方式。参考答案用于训练监督。详见[结构图与联合训练说明](LexiFAR_Architecture.md#architecture-and-loss)。
+第 1、2、4、6 个序列块后各有一个 MidFPred 投影。替代 CDEA 的词级模块由 P1、P2、P3 共享。模块利用原词和整句语境预测 `KEEP` 与各候选词的概率。每次级间引导由两个部分组成。
+
+- **位置**用 `1 − P(KEEP)` 定位可能需要修改的词，并用一维膨胀减腐蚀突出子词边界。
+- **替换内容**按概率加权求和候选词向量，再作为残差加到原词的子词位置。`KEEP` 对候选向量的贡献为零。同一个 `get` 可按语境传递 `gain` 或 `obtain` 的信息。
+
+每个 token 位置的 F1–F4 特征拼接后，用一层可学习的 `4d → d` 投影融合成 P4 的输入。训练和缓存解码都从原文计算词级引导，参考答案用于训练监督。详见[结构图与联合训练说明](LexiFAR_Architecture.md#architecture-and-loss)。
 
 句级训练以原文作前缀，只对参考改写的 token 计算交叉熵。常规训练从随机权重开始，字节级 BPE 分词器只使用两个训练语料拟合。推理按顺序贪心生成。Mamba 使用 PyTorch 实现的参考递推。
 
@@ -54,7 +59,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts/setup.ps1
 
 ```powershell
 $python = '.\.venv\Scripts\python.exe'
-$runDir = 'runs/six_layer_joint_v3'
+$runDir = 'runs/six_layer_joint_v4'
 $sentence = 'The proposed method gets better results than the baseline.'
 
 # 联合训练一个检查点
@@ -65,7 +70,9 @@ $sentence = 'The proposed method gets better results than the baseline.'
 & $python -m academic_rewriter.test --checkpoint $runDir --split test --limit 0
 ```
 
-`--limit 0` 测试全部 87 条真实测试样本。`evaluation/test-192/` 中的 `predictions.csv` 和 `predictions.jsonl` 按行对齐原文、人工参考和最终改写。`metrics.json` 记录最终指标、复制基线和内部预测点 `[1, 2, 4, 6]`。改成 `--split validation` 可诊断全部 98 条验证样本。准备好独立人工复核的词级样本后可加 `--word-test .cache/reviewed_word_pairs.jsonl`。训练权重和预测保存在本地忽略目录。
+`--limit 0` 测试全部 87 条真实测试样本。`evaluation/test-192/` 中的 `predictions.csv` 和 `predictions.jsonl` 按行对齐原文、人工参考和最终改写。`metrics.json` 记录最终指标、复制基线、是否启用候选词引导和内部预测点 `[1, 2, 4, 6]`。改成 `--split validation` 可诊断全部 98 条验证样本。准备好独立人工复核的词级样本后可加 `--word-test .cache/reviewed_word_pairs.jsonl`。训练权重和预测保存在本地忽略目录。
+
+要比较候选词向量的贡献，可在同样的设置下加 `--word-guidance position --output runs/six_layer_joint_v4_position` 训练位置引导的对照检查点，并用同一测试命令评估。详见[训练和测试命令](LexiFAR_Training.md#evaluate-the-entire-split)。
 
 需要核验项目时，可在根目录手动执行以下命令。训练、推理、测试和其他项目脚本由用户执行，除非用户明确授权代跑。
 
@@ -76,12 +83,13 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts/verify_integrity.ps1
 
 ## 当前进度与维护
 
-四个预测点、三次词级引导和最终融合已写入代码。新训练默认使用融合结构，旧检查点继续使用原来的布局。融合模型的训练、测试、独立人工盲评与 MORL 对照仍待实测。
+新训练默认启用候选词引导和最终特征融合。位置引导的旧检查点可按保存的配置加载。新增模块的训练、测试和位置引导对照待手动运行，独立人工盲评与 MORL 对照仍待实测。
 
 以后每次完成一项项目修改，都要在同一提交里同步这份总览。更新受影响的章节，并在下面记录改动和实际验证情况。规则见[仓库维护说明](../AGENTS.md)。
 
 | 日期 | 改动 | 验证与状态 |
 | --- | --- | --- |
+| 2026-11-20 | 在 P1–P3 的词级引导中加入概率加权的候选词向量，提供位置引导对照选项。 | 已静态核对代码、配置和文档。候选词对齐、梯度、缓存解码、检查点加载和端到端回归待手动验证。 |
 | 2026-11-19 | 将模型命名为 LexiFAR，重命名架构文档、训练文档和模型图，同步 README 和中文总览。 | 已核对文档链接、章节锚点和图中标题。 |
 | 2026-11-19 | 把 F1–F4 拼接后融合，推理和测试只返回 P4。模型图同步标出四条特征路径和唯一的最终输出。 | 静态核对代码和图。融合梯度、缓存解码和单一输出的回归检查待手动运行。 |
 | 2026-11-19 | 绘制四阶段模型矢量图，标出 P1 至 P4、E1 至 E3、词级融合和联合训练损失。 | 图中的预测点、连接和损失已与当前实现核对。 |
