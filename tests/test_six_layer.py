@@ -21,6 +21,15 @@ class SixLayerTests(unittest.TestCase):
         return SixLayerRewriter(SixLayerConfig(vocab_size=24, d_model=16, attention_heads=2,
                                                ffn_dim=32, dropout=0., max_positions=40)).eval()
 
+    def test_fresh_additive_embeddings_share_the_token_scale(self):
+        torch.manual_seed(42)
+        model = SixLayerRewriter(SixLayerConfig(vocab_size=128, d_model=192))
+        for name in ('token_embedding', 'position_embedding', 'segment_embedding'):
+            with self.subTest(table=name):
+                weight = getattr(model, name).weight.detach()
+                self.assertAlmostEqual(weight.std().item(), 0.02, delta=0.004)
+        self.assertEqual(model.token_embedding.weight[model.config.pad_token_id].count_nonzero().item(), 0)
+
     def test_six_blocks_are_causal_and_cached_logits_match(self):
         model = self.model()
         self.assertEqual([layer.kind for layer in model.layers],
@@ -102,6 +111,8 @@ class SixLayerTests(unittest.TestCase):
                 loss = model(**batch(read_rows(data/'validation.jsonl'), tokenizer, 'cpu', 16)).loss.item()
             self.assertAlmostEqual(result['validation_cross_entropy'], loss, places=5)
             self.assertEqual(result['sequence_layers'], 6)
+            self.assertEqual(result['fresh_input_embedding_std'], 0.02)
+            self.assertNotIn('fresh_input_embedding_std', continuation)
             self.assertEqual(metrics['n'], 2)
             exported = output/'evaluation'/'validation-12'
             predictions = read_rows(exported/'predictions.jsonl')

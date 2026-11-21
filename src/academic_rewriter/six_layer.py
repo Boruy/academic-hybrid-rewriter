@@ -180,6 +180,7 @@ class MambaBlock(nn.Module):
 
 class SixLayerRewriter(nn.Module):
     layer_layout = ('lstm', 'lstm', 'transformer', 'transformer', 'mamba', 'mamba')
+    input_embedding_init_std = 0.02
 
     def __init__(self, config):
         super().__init__()
@@ -219,8 +220,12 @@ class SixLayerRewriter(nn.Module):
         }) if config.prediction_stages == 4 else None)
         self.final_fusion = (nn.Linear(len(self.prediction_stage_layers) * config.d_model, config.d_model)
                              if config.fuse_stage_outputs else None)
-        nn.init.normal_(self.token_embedding.weight, std=0.02)
+        nn.init.normal_(self.token_embedding.weight, std=self.input_embedding_init_std)
         with torch.no_grad():
+            # nn.Embedding already drew unit-normal values. Rescale the existing draws
+            # so all three additive inputs start at the same scale for a given seed.
+            self.position_embedding.weight.mul_(self.input_embedding_init_std)
+            self.segment_embedding.weight.mul_(self.input_embedding_init_std)
             self.token_embedding.weight[config.pad_token_id].zero_()
 
     def _resolve_depth(self, depth):

@@ -31,6 +31,8 @@ Synthetic examples use 48 authored semantic frames across 24 technical domains, 
 
 The byte-level BPE tokenizer is fitted to sentence and word training text with a full byte alphabet and a 4,096-token vocabulary limit. The model starts from random weights. `--tiny` uses a small model and word-level tokenizer for pipeline checks. Cross-entropy is comparable only when the tokenizer and evaluation protocol match.
 
+Fresh training initializes the token, absolute-position and source/target segment embeddings at a standard deviation of 0.02 before adding them together. The padding token starts at zero. A fresh run records `fresh_input_embedding_std` in `result.json`. Loading a checkpoint or continuing training restores all three learned tables from its saved weights.
+
 The [dataset card](Dataset_Card.md) documents real-data provenance and preserved curation references. The frozen arXivEdits partition and source hashes are retained; those references are not active training data or independently approved examples.
 
 ## Training
@@ -43,6 +45,15 @@ Run commands yourself from the repository root. Project code is not executed by 
 ```
 
 The launcher reads `configs/six_layer_experiment.json` and checks the generator and data fingerprints before training. It uses width 192, four attention heads, feed-forward width 768, dropout 0.1, batch 16, LR 3e-4, seed 42, source/target limits of 192 tokens and up to 2,000 joint updates. Sentence batches are drawn from shuffled epochs and word batches are sampled from the training word corpus. Sentence truncation is rejected.
+
+To compare the updated initialization with the saved November 21 run, start a fresh run with the same configuration in a separate directory. Compare the raw generations on the same 98 validation examples with the copy-input baseline, including the four examples containing numeric strings.
+
+```powershell
+$python = '.\.venv\Scripts\python.exe'
+$run = 'runs/six_layer_joint_v4_embscale'
+& $python scripts/train_six_layer.py --output $run
+& $python -m academic_rewriter.test --checkpoint $run --split validation --limit 0
+```
 
 Each update prints the step, total loss, 20-step moving average, auxiliary P3 cross-entropy, fused P4 cross-entropy, mean word cross-entropy, learning rate and elapsed time. `--log-every 10` changes the terminal interval to ten updates. The trainer records every step in `training_progress.jsonl` and reports when validation starts and finishes.
 

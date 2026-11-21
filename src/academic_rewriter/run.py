@@ -262,6 +262,8 @@ def run(args):
         conditional_generation='causal source prefix; target-only token loss',
         experiment_type='pipeline smoke test, not a quality comparison' if args.tiny else 'six-layer synthetic-augmented exploratory training',
         cross_entropy_comparability='Compare CE only when tokenization and evaluation protocol match.')
+    if not parent:
+        result['fresh_input_embedding_std'] = model.input_embedding_init_std
     result['validation_cross_entropy_by_depth'] = selected_validation
     if word_task:
         fused = six_config.fuse_stage_outputs
