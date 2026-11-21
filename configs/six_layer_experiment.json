@@ -27,7 +27,8 @@
     "sampling": "shuffle-epochs",
     "checkpoint_selection": "best-validation",
     "early_stopping_patience": 4,
-    "reject_truncation": true
+    "reject_truncation": true,
+    "overwrite": true
   },
   "evaluation": "Unchanged inspected real validation/test sets are diagnostics. Synthetic pairs are training-only. New tokenizer CE is not directly comparable to historical BART CE."
 }

@@ -12,7 +12,7 @@ ROOT = Path(__file__).resolve().parents[1]
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--config', default='configs/six_layer_experiment.json')
-    parser.add_argument('--output', help='New checkpoint directory; existing weights are protected')
+    parser.add_argument('--output', help='Checkpoint directory (overwritten with the default config)')
     parser.add_argument('--depth', choices=['joint', 'medium', 'deep'],
                         help='Default is joint; medium and deep reproduce legacy single-output runs')
     parser.add_argument('--word-guidance', choices=['position', 'candidates'],

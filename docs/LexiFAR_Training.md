@@ -38,8 +38,8 @@ The [dataset card](Dataset_Card.md) documents real-data provenance and preserved
 Run commands yourself from the repository root. Project code is not executed by the agent unless explicitly requested.
 
 ```powershell
-.\.venv\Scripts\python.exe scripts/train_six_layer.py --output runs/six_layer_joint_v4 --print-command
-.\.venv\Scripts\python.exe scripts/train_six_layer.py --output runs/six_layer_joint_v4
+.\.venv\Scripts\python.exe scripts/train_six_layer.py --print-command
+.\.venv\Scripts\python.exe scripts/train_six_layer.py
 ```
 
 The launcher reads `configs/six_layer_experiment.json` and checks the generator and data fingerprints before training. It uses width 192, four attention heads, feed-forward width 768, dropout 0.1, batch 16, LR 3e-4, seed 42, source/target limits of 192 tokens and up to 2,000 joint updates. Sentence batches are drawn from shuffled epochs and word batches are sampled from the training word corpus. Sentence truncation is rejected.
@@ -48,7 +48,9 @@ Each update prints the step, total loss, 20-step moving average, auxiliary P3 cr
 
 Validation runs every 250 updates and monitors the fused final token cross-entropy. The best-validation checkpoint includes step zero, and early stopping follows four unimproved checks. The checkpoint directory stores `weights.pt`, the tokenizer and a config with the saved stage layout, fusion and candidate guidance settings. The training and validation logs record auxiliary losses where labels are available.
 
-Use a new output directory for another run. `--init-checkpoint` on `academic_rewriter.run` continues the saved architecture and tokenizer with a fresh optimizer. A joint continuation requires the saved word replacement vocabulary. Existing single-depth checkpoints remain available in their original mode.
+The default config passes `--overwrite` and reruns training in `runs/six_layer_joint_v4`. Use `--output` to choose the directory to write. The trainer publishes `result.json` after it saves the weights and logs, marking the run ready for evaluation.
+
+`--init-checkpoint` on `academic_rewriter.run` continues the saved architecture and tokenizer with a fresh optimizer and writes to a different directory. A joint continuation requires the saved word replacement vocabulary. Existing single-depth checkpoints remain available in their original mode.
 
 ## Evaluate the entire split
 

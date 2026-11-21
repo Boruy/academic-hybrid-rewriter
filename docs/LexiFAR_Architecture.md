@@ -28,7 +28,7 @@ Each optimizer update uses a batch of [sentence pairs](../data/academic-pairs-v1
 
 ## Train once and generate the final rewrite
 
-Run from the repository root in PowerShell. Use a fresh checkpoint directory for a new run.
+Run from the repository root in PowerShell. The default training config replaces the checkpoint and training logs in the selected output directory when rerun.
 
 ```powershell
 $python = '.\.venv\Scripts\python.exe'

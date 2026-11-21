@@ -4,11 +4,37 @@ import json
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 from academic_rewriter.run import parser, run
 
 
 class TrainingControlsTests(unittest.TestCase):
+    def test_interrupted_overwrite_clears_old_checkpoint_completion(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            for split in ('train', 'validation'):
+                (root/(split+'.jsonl')).write_text(
+                    json.dumps(dict(id=split, source='Original.', target='Revised.')) + '\n', encoding='utf8')
+            output = root/'checkpoint'
+            output.mkdir()
+            weights = output/'weights.pt'
+            weights.write_bytes(b'old weights')
+            result = output/'result.json'
+            result.write_text('{"model":"six_layer"}', encoding='utf8')
+            flags = ['--tiny', '--depth', 'deep', '--device', 'cpu',
+                     '--data', str(root), '--output', str(output)]
+
+            with self.assertRaisesRegex(ValueError, 'Output already contains weights'):
+                run(parser().parse_args(flags))
+            self.assertTrue(result.is_file())
+
+            with patch('academic_rewriter.run.build_tokenizer', side_effect=RuntimeError('interrupted')):
+                with self.assertRaisesRegex(RuntimeError, 'interrupted'):
+                    run(parser().parse_args([*flags, '--overwrite']))
+            self.assertFalse(result.exists())
+            self.assertEqual(weights.read_bytes(), b'old weights')
+
     def test_validation_plateau_reduces_lr_and_persists_live_metrics(self):
         """Opposing validation targets expose overfitting and must lower the LR."""
         with tempfile.TemporaryDirectory() as temporary:

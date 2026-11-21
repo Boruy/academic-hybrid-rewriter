@@ -36,14 +36,14 @@ For an existing offline environment, use `scripts/setup.ps1 -Offline`. See [envi
 
 The prepared dataset already exists: **12,491 training pairs** (12,000 synthetic + 491 real), **98 real validation pairs** and **87 real test pairs**. Synthetic pairs are unverified weak supervision and are used only for training. Do not regenerate or repartition this frozen version.
 
-Use a fresh output directory for each run:
+The default training command writes to `runs/six_layer_joint_v4`. Rerunning it replaces the checkpoint and training logs in that directory.
 
 ```powershell
-.\.venv\Scripts\python.exe scripts/train_six_layer.py --output runs/six_layer_joint_v4 --print-command
-.\.venv\Scripts\python.exe scripts/train_six_layer.py --output runs/six_layer_joint_v4
+.\.venv\Scripts\python.exe scripts/train_six_layer.py --print-command
+.\.venv\Scripts\python.exe scripts/train_six_layer.py
 ```
 
-Each update learns from both training corpora and combines word supervision, an auxiliary sentence objective and the fused final sentence objective. The launcher verifies the data and generator hashes. The settings use width 192, four attention heads, batch size 16, LR 3e-4, up to 2,000 updates, validation every 250 updates, best-validation checkpoint selection and early stopping. Existing weights are protected against accidental replacement.
+Each update learns from both training corpora and combines word supervision, an auxiliary sentence objective and the fused final sentence objective. The launcher verifies the data and generator hashes. The settings use width 192, four attention heads, batch size 16, LR 3e-4, up to 2,000 updates, validation every 250 updates, best-validation checkpoint selection and early stopping.
 
 The terminal prints each optimizer update and its losses. Pass `--log-every 10` for a line every ten updates.
 

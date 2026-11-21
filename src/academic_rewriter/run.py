@@ -71,7 +71,7 @@ def run(args):
     if (out/'weights.pt').exists() and not args.overwrite:
         raise ValueError('Output already contains weights; use a new directory or explicit --overwrite')
     out.mkdir(parents=True,exist_ok=True)
-    (out/'run_args.json').write_text(json.dumps(vars(args),indent=2),encoding='utf8')
+    result_path = out/'result.json'
     all_train=read_rows(Path(args.data)/'train.jsonl'); validation=read_rows(Path(args.data)/'validation.jsonl')
     if not all_train or not validation: raise ValueError('Empty training or validation data')
     if any(row.get('synthetic') or row.get('training_only') or row.get('split') == 'train' for row in validation):
@@ -100,6 +100,12 @@ def run(args):
         replacements = word_replacements(word_rows)
         if parent and replacements != six_config.word_replacements:
             raise ValueError('Continuation requires the saved word replacement vocabulary')
+    if parent and 2 * args.max_length > six_config.max_positions:
+        raise ValueError('Continuation max-length exceeds saved position capacity')
+    if args.overwrite:
+        # A reader uses result.json to identify a completed checkpoint.
+        result_path.unlink(missing_ok=True)
+    (out/'run_args.json').write_text(json.dumps(vars(args),indent=2),encoding='utf8')
     if not parent:
         tokenizer=(build_tokenizer if args.tiny else build_subword_tokenizer)(all_train + word_rows,out/'tokenizer')
         six_config=SixLayerConfig(vocab_size=len(tokenizer),d_model=32 if args.tiny else args.d_model,
@@ -110,7 +116,6 @@ def run(args):
             prediction_stages=4 if depth == 'joint' else 3, fuse_stage_outputs=depth == 'joint',
             candidate_guidance=depth == 'joint' and args.word_guidance != 'position')
     tokenizer.padding_side='right'; tokenizer.save_pretrained(out/'tokenizer')
-    if 2*args.max_length>six_config.max_positions: raise ValueError('Continuation max-length exceeds saved position capacity')
     six_config.save(out/'six_layer_config.json');model=SixLayerRewriter(six_config)
     if parent:
         model.load_state_dict(torch.load(parent/'weights.pt',map_location='cpu',weights_only=True),strict=True)
@@ -273,7 +278,12 @@ def run(args):
     if manifest.exists():result['training_data_manifest_sha256']=file_hash(manifest)
     result['validation_examples_max_new_tokens']=args.max_length
     torch.save(model.state_dict(),out/'weights.pt')
-    for name,data in [('result.json',result),('training_log.json',log),('validation_log.json',validation_history),('validation_examples.json',predictions)]: (out/name).write_text(json.dumps(data,indent=2,ensure_ascii=False),encoding='utf8')
+    for name, data in [('training_log.json', log), ('validation_log.json', validation_history),
+                       ('validation_examples.json', predictions)]:
+        (out/name).write_text(json.dumps(data, indent=2, ensure_ascii=False), encoding='utf8')
+    pending_result = result_path.with_suffix('.json.tmp')
+    pending_result.write_text(json.dumps(result, indent=2, ensure_ascii=False), encoding='utf8')
+    pending_result.replace(result_path)
     print(json.dumps(result,indent=2),flush=True)
     print(f'Training complete. Results: {out.resolve()}',flush=True)
     return result
