@@ -1,243 +1,425 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="1860" height="1175" viewBox="0 0 1860 1175"
-     role="img" aria-labelledby="diagram-title diagram-description">
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink"
+     width="1920" height="840" viewBox="0 0 1920 840" role="img" aria-labelledby="diagram-title diagram-description">
   <title id="diagram-title">LexiFAR architecture</title>
-  <desc id="diagram-description">An English sentence is tokenized and runs through two sequential LSTM stages,
-    two Transformer blocks and two Mamba blocks. Each of the four stages has a MidFPred projection.
-    P1 locates word edits, P2 predicts single-word changes, and P3 adds an auxiliary sentence loss and
-    refined word scores. Three guides combine word boundary weights and probability-weighted replacement
-    vectors from the source sentence. Each guide updates the next stage. The projected features F1, F2,
-    F3 and F4 are concatenated at each token position and projected into P4, the only final sentence output.
-    Word and sentence cross-entropies form a single training objective.</desc>
+  <desc id="diagram-description">Four supervised stages share a six-block backbone. The first and second stages
+    use one LSTM each, the third uses two Transformers, and the fourth uses two Mamba blocks. Source-only
+    word predictions at the first three stages produce position weights and probability-weighted replacement
+    vectors for the next stage. Stage three also has an auxiliary sentence loss. All four projected features
+    are concatenated per token, projected from 4d to d and decoded by the tied vocabulary head. Only P4
+    generates the final rewrite. The right panel expands the shared contextual word edit module.</desc>
   <defs>
-    <marker id="arrow-feature" markerWidth="8" markerHeight="8" refX="8" refY="4" orient="auto"
-            markerUnits="userSpaceOnUse" viewBox="0 0 8 8">
-      <path d="M0 0L8 4L0 8Z" fill="#35546c" />
+    <marker id="arrow" markerUnits="userSpaceOnUse" markerWidth="9" markerHeight="8" refX="8.3" refY="4" orient="auto" viewBox="0 0 9 8">
+      <path d="M0 0.5 8.5 4 0 7.5Z" fill="#161d28"/>
     </marker>
-    <marker id="arrow-guide" markerWidth="8" markerHeight="8" refX="8" refY="4" orient="auto"
-            markerUnits="userSpaceOnUse" viewBox="0 0 8 8">
-      <path d="M0 0L8 4L0 8Z" fill="#a95d24" />
+    <marker id="arrow-back" markerUnits="userSpaceOnUse" markerWidth="9" markerHeight="8" refX="0.7" refY="4" orient="auto" viewBox="0 0 9 8">
+      <path d="M8.5 0.5 0 4 8.5 7.5Z" fill="#161d28"/>
     </marker>
-    <marker id="arrow-loss" markerWidth="8" markerHeight="8" refX="8" refY="4" orient="auto"
-            markerUnits="userSpaceOnUse" viewBox="0 0 8 8">
-      <path d="M0 0L8 4L0 8Z" fill="#73539b" />
+    <marker id="arrow-purple" markerUnits="userSpaceOnUse" markerWidth="8" markerHeight="7" refX="7.6" refY="3.5" orient="auto" viewBox="0 0 8 7">
+      <path d="M0 0.4 7.8 3.5 0 6.6Z" fill="#743d9d"/>
     </marker>
-    <marker id="arrow-fusion" markerWidth="8" markerHeight="8" refX="8" refY="4" orient="auto"
-            markerUnits="userSpaceOnUse" viewBox="0 0 8 8">
-      <path d="M0 0L8 4L0 8Z" fill="#246b51" />
+    <marker id="arrow-gray" markerUnits="userSpaceOnUse" markerWidth="9" markerHeight="8" refX="8.3" refY="4" orient="auto" viewBox="0 0 9 8">
+      <path d="M0 0.5 8.5 4 0 7.5Z" fill="#6d7580"/>
     </marker>
+    <g id="multiply">
+      <circle r="9" fill="#fafafa" stroke="#1b3150" stroke-width="2"/>
+      <circle r="3" fill="#1b3150"/>
+    </g>
+    <g id="addition">
+      <circle r="9" fill="#fafafa" stroke="#1b3150" stroke-width="2"/>
+      <path d="M-4.5 0H4.5M0 -4.5V4.5" fill="none" stroke="#1b3150" stroke-width="1.9"/>
+    </g>
+    <g id="concatenation">
+      <circle r="10" fill="#fafafa" stroke="#1b3150" stroke-width="2"/>
+      <text y="5" text-anchor="middle" font-family="Arial, sans-serif" font-weight="700" font-size="14" fill="#1b3150">C</text>
+    </g>
+    <g id="stage-arrow">
+      <path d="M-4.2 -10H4.2V0H10L0 10.4 -10 0H-4.2Z" fill="#ffebbb" stroke="#1b3150" stroke-width="1.7"/>
+    </g>
+    <g id="feature-sheet" stroke="#7337a6" stroke-width="2.4" stroke-linejoin="miter">
+      <path d="M0 -20 11 -31H19L8 -20Z" fill="#eadbf5"/>
+      <path d="M8 -20 19 -31V16L8 27Z" fill="#bc9cd5"/>
+      <path d="M0 -20H8V27H0Z" fill="#f1e7f6"/>
+    </g>
+    <g id="projection-box">
+      <rect x="0" y="-23" width="124" height="46" fill="#fff1cd" stroke="#21364e" stroke-width="1.7"/>
+      <text x="62" y="7" class="projection mid">MidFPred</text>
+    </g>
+    <g id="word-head-box">
+      <rect x="2" y="-21" width="190" height="46" fill="#293b50" opacity=".16"/>
+      <rect x="0" y="-23" width="190" height="46" fill="#edbaa2" stroke="#21364e" stroke-width="1.75"/>
+      <rect x="2.5" y="-20.5" width="185" height="41" fill="none" stroke="#fff0d1" stroke-width="1"/>
+      <text x="95" y="7" class="node-label mid">Shared word head</text>
+    </g>
+    <g id="build-guide-box">
+      <rect x="2" y="-14" width="190" height="32" fill="#293b50" opacity=".21"/>
+      <rect x="0" y="-16" width="190" height="32" fill="#f6c7c9" stroke="#253952" stroke-width="1.7"/>
+      <rect x="2" y="-14" width="186" height="28" fill="none" stroke="#e9d9d6" stroke-width=".8"/>
+      <text x="95" y="6" class="guide-label mid">Build word guide</text>
+    </g>
   </defs>
   <style>
-    text { font-family: "Segoe UI", Arial, sans-serif; fill: #142a3c; }
-    .title { font-size: 50px; font-weight: 700; letter-spacing: -1px; }
-    .subtitle { font-size: 22px; fill: #476175; }
-    .eyebrow { font-size: 15px; font-weight: 700; letter-spacing: 1.5px; fill: #456478; }
-    .centered { text-anchor: middle; }
-    .block { stroke-width: 1.5; }
-    .stem { fill: #f0f4f7; stroke: #bdcbd6; }
-    .lstm { fill: #eaf3f9; stroke: #a6c5da; }
-    .transformer { fill: #eaf6f2; stroke: #9bcbbb; }
-    .mamba { fill: #efeffb; stroke: #b8b8df; }
-    .lstm-accent { fill: #437eaa; }
-    .transformer-accent { fill: #2f806a; }
-    .fusion-accent { fill: #246b51; }
-    .block-title { font-size: 26px; font-weight: 700; }
-    .input-title { font-size: 22px; font-weight: 700; }
-    .detail { font-size: 17px; fill: #496174; }
-    .fine { font-size: 15px; fill: #4d6374; }
-    .projection { fill: #f4f7fa; stroke: #c9d5de; stroke-width: 1.3; }
-    .projection-title { font-size: 17px; font-weight: 700; }
-    .prediction { fill: #fff; stroke: #b9cad6; stroke-width: 1.5; }
-    .prediction-label { font-size: 15px; letter-spacing: 1px; font-weight: 700; fill: #345a72; }
-    .prediction-title { font-size: 23px; font-weight: 650; }
-    .gate, .guide { fill: #fff3e6; stroke: #ddba99; stroke-width: 1.5; }
-    .guide { fill: #fff9f1; }
-    .gate-title { font-size: 19px; font-weight: 700; fill: #804317; }
-    .guide-title { font-size: 17px; font-weight: 700; fill: #804317; }
-    .guide-detail { font-size: 15px; fill: #80512e; }
-    .loss { fill: #f5f1fa; stroke: #d3c6e3; stroke-width: 1.4; }
-    .loss-title { font-size: 17px; font-weight: 700; fill: #503773; }
-    .feature-arrow { stroke: #35546c; stroke-width: 2.5; fill: none; marker-end: url(#arrow-feature); }
-    .guide-arrow { stroke: #a95d24; stroke-width: 2.5; fill: none; marker-end: url(#arrow-guide); }
-    .loss-arrow { stroke: #73539b; stroke-width: 2.2; fill: none; stroke-dasharray: 5 4; marker-end: url(#arrow-loss); }
-    .fusion-wire, .fusion-arrow { stroke: #246b51; stroke-width: 2.5; fill: none; stroke-linejoin: round; }
-    .fusion-arrow { marker-end: url(#arrow-fusion); }
-    .fusion-box { fill: #e9f5ef; stroke: #9ac7b6; stroke-width: 1.5; }
-    .fusion-title { font-size: 22px; font-weight: 700; fill: #245843; }
-    .objective-title { font-size: 25px; font-weight: 700; fill: #35284b; }
-    .formula { font-family: "Cascadia Mono", Consolas, monospace; font-size: 22px; fill: #34234b; }
+    text { fill:#141a20; font-family:"Times New Roman",Times,serif; }
+    .mid { text-anchor:middle; }
+    .end { text-anchor:end; }
+    .section { font-size:21px; }
+    .node-label,.projection,.op-label,.stage-label,.group-label,.source-label { font-family:Arial,"Liberation Sans",sans-serif; }
+    .node-label { font-size:19px; }
+    .projection { font-size:20px; fill:#af4e1e; }
+    .op-label { font-size:16px; }
+    .stage-label { font-size:16px; }
+    .group-label { font-size:20px; }
+    .guide-label,.detail-label { font-size:18px; }
+    .reading { font-size:16px; }
+    .math { font-size:19px; font-style:italic; }
+    .prediction { font-size:30px; font-style:italic; }
+    .super-label { font-size:17px; font-style:italic; }
+    .truth { font-size:20px; }
+    .note { font-size:16px; fill:#414851; }
+    .feature-label { font-size:23px; font-style:italic; fill:#593378; }
+    .panel { fill:#f5f5f4; stroke:#171b22; stroke-width:2.8; stroke-dasharray:16 8; }
+    .warm-panel { fill:#f5f5f4; stroke:#e6dfbc; stroke-width:2.6; stroke-dasharray:17 7; }
+    .box { stroke:#21364e; stroke-width:1.65; }
+    .wire,.flow,.supervision,.fusion-wire,.gray-flow { fill:none; stroke:#161d28; stroke-width:1.85; stroke-linejoin:round; }
+    .flow { marker-end:url(#arrow); }
+    .supervision { marker-start:url(#arrow-back); marker-end:url(#arrow); }
+    .fusion-wire { stroke:#743d9d; stroke-width:2; marker-end:url(#arrow-purple); }
+    .gray-flow { stroke:#6d7580; stroke-width:2.4; marker-end:url(#arrow-gray); }
+    .bridge { fill:none; stroke:#f5f5f4; stroke-width:7.5; }
+    .junction { fill:#161d28; }
   </style>
-
-  <rect width="1860" height="1175" fill="#f7f9fc" />
-  <text x="58" y="83" class="title">LexiFAR architecture</text>
-  <text x="60" y="122" class="subtitle">Four supervised stages, one fused sentence output</text>
-  <g aria-label="Legend">
-    <path class="feature-arrow" d="M1040 81H1076" />
-    <text x="1088" y="87" class="detail">Features</text>
-    <path class="guide-arrow" d="M1183 81H1219" />
-    <text x="1231" y="87" class="detail">Word feedback</text>
-    <path class="fusion-arrow" d="M1377 81H1413" />
-    <text x="1425" y="87" class="detail">Stage fusion</text>
-    <path class="loss-arrow" d="M1555 81H1591" />
-    <text x="1603" y="87" class="detail">Supervision</text>
+  <rect width="1920" height="840" fill="#fff"/>
+  <g aria-label="Panel frames">
+    <rect class="warm-panel" x="12" y="14" width="270" height="810"/>
+    <rect class="panel" x="298" y="14" width="438" height="202"/>
+    <rect class="panel" x="748" y="14" width="246" height="202"/>
+    <rect class="panel" x="1006" y="14" width="296" height="202"/>
+    <rect class="panel" x="1314" y="14" width="594" height="202"/>
+    <rect class="warm-panel" x="298" y="229" width="1114" height="595"/>
+    <rect class="panel" x="1426" y="229" width="482" height="595"/>
   </g>
-  <rect x="44" y="174" width="1772" height="579" rx="22" fill="#fff" stroke="#dce5ed" stroke-width="1.5" />
-  <rect x="44" y="811" width="1772" height="119" rx="18" fill="#fff" stroke="#b9d4c7" stroke-width="1.5" />
-
-  <g aria-label="Shared input">
-    <text x="58" y="228" class="eyebrow">INPUT</text>
-    <rect x="58" y="254" width="202" height="110" rx="14" class="block stem" />
-    <text x="159" y="294" class="input-title centered">English sentence</text>
-    <text x="159" y="322" class="detail centered">Byte-level BPE</text>
-    <text x="159" y="344" class="fine centered">Shared embeddings</text>
-    <text x="58" y="510" class="eyebrow">WORD FEEDBACK</text>
-    <text x="58" y="541" class="detail">Predicted edit scores</text>
-    <text x="58" y="565" class="detail">are aligned to source</text>
-    <text x="58" y="589" class="detail">subword positions.</text>
-    <text x="58" y="681" class="eyebrow">SUPERVISION</text>
-    <text x="58" y="704" class="fine">Training only</text>
+  <g id="mamba-mixer" aria-label="Mamba mixer with a selective state-space path and a SiLU gate">
+    <text x="314" y="42" class="section">Mamba mixer</text>
+    <path class="flow" d="M315 125H347"/>
+    <path class="wire" d="M380 125H401M401 83V165"/>
+    <path class="flow" d="M401 83H424"/>
+    <path class="flow" d="M401 165H484"/>
+    <path class="flow" d="M459 83H483"/>
+    <path class="flow" d="M517 83H539"/>
+    <path class="flow" d="M573 83H607V114"/>
+    <path class="flow" d="M518 165H607V136"/>
+    <path class="flow" d="M618 125H641"/>
+    <path class="flow" d="M678 125H718"/>
+    <circle class="junction" cx="401" cy="125" r="2.6"/>
+    <rect x="348" y="84" width="32" height="82" fill="#bfd5ec"/>
+    <text class="op-label mid" transform="translate(364 125) rotate(-90)" dy="5.5">Linear</text>
+    <rect x="426" y="50" width="33" height="66" fill="#c9dfb1"/>
+    <text class="op-label mid" transform="translate(442.5 83) rotate(-90)" dy="5.5">Conv1D</text>
+    <rect x="485" y="50" width="32" height="66" fill="#ffe7a0"/>
+    <text class="op-label mid" transform="translate(501 83) rotate(-90)" dy="5.5">SiLU</text>
+    <rect x="541" y="50" width="32" height="66" fill="#eb9148"/>
+    <text class="op-label mid" transform="translate(557 83) rotate(-90)" dy="5.5">SSM</text>
+    <rect x="485" y="137" width="32" height="56" fill="#ffe7a0"/>
+    <text class="op-label mid" transform="translate(501 165) rotate(-90)" dy="5.5">SiLU</text>
+    <rect x="644" y="84" width="34" height="82" fill="#bfd5ec"/>
+    <text class="op-label mid" transform="translate(661 125) rotate(-90)" dy="5.5">Linear</text>
+    <use xlink:href="#multiply" transform="translate(607 125)"/>
   </g>
-
-  <g aria-label="Connections">
-    <path class="feature-arrow" d="M261 309H307" />
-    <path class="feature-arrow" d="M549 309H572" />
-    <path class="feature-arrow" d="M700 309H723" />
-    <path class="feature-arrow" d="M967 309H990" />
-    <path class="feature-arrow" d="M1118 309H1141" />
-    <path class="feature-arrow" d="M1385 309H1408" />
-    <path class="feature-arrow" d="M1536 309H1559" />
-    <path class="feature-arrow" d="M429 365V398" />
-    <path class="feature-arrow" d="M429 454V485" />
-    <path class="loss-arrow" d="M429 605V651" />
-    <path class="feature-arrow" d="M846 365V398" />
-    <path class="feature-arrow" d="M846 454V485" />
-    <path class="loss-arrow" d="M846 605V651" />
-    <path class="feature-arrow" d="M1264 365V398" />
-    <path class="feature-arrow" d="M1264 454V485" />
-    <path class="loss-arrow" d="M1264 605V651" />
-    <path class="feature-arrow" d="M1682 365V398" />
-    <path class="guide-arrow" d="M549 548H572" />
-    <path class="guide-arrow" d="M637 507V354" />
-    <path class="guide-arrow" d="M967 548H990" />
-    <path class="guide-arrow" d="M1055 507V354" />
-    <path class="guide-arrow" d="M1385 575H1408" />
-    <path class="guide-arrow" d="M1473 507V354" />
+  <g id="midfpred-detail" aria-label="Residual MidFPred projection">
+    <text x="763" y="42" class="section">MidFPred</text>
+    <path class="flow" d="M760 114H788"/>
+    <path class="flow" d="M822 114H841"/>
+    <path class="flow" d="M875 114H894"/>
+    <path class="flow" d="M928 114H945"/>
+    <path class="flow" d="M967 114H986"/>
+    <path class="flow" d="M775 114V176H956V126"/>
+    <circle class="junction" cx="775" cy="114" r="2.5"/>
+    <rect x="790" y="77" width="32" height="74" fill="#bfd5ec"/>
+    <text class="op-label mid" transform="translate(806 114) rotate(-90)" dy="5.5">Linear</text>
+    <rect x="843" y="77" width="32" height="74" fill="#c9dfb1"/>
+    <text class="op-label mid" transform="translate(859 114) rotate(-90)" dy="5.5">GELU</text>
+    <rect x="896" y="77" width="32" height="74" fill="#bfd5ec"/>
+    <text class="op-label mid" transform="translate(912 114) rotate(-90)" dy="5.5">Linear</text>
+    <use xlink:href="#addition" transform="translate(956 114)"/>
   </g>
-  <g id="fusion-connections" aria-label="Four projected features enter final fusion">
-    <path class="fusion-wire" d="M324 427H295V782H1548" />
-    <path class="fusion-wire" d="M741 427H712V782" />
-    <path class="fusion-wire" d="M1159 427H1130V782" />
-    <path class="fusion-wire" d="M1577 427H1548V782" />
-    <circle cx="712" cy="782" r="4" class="fusion-accent" />
-    <circle cx="930" cy="782" r="4" class="fusion-accent" />
-    <circle cx="1130" cy="782" r="4" class="fusion-accent" />
-    <path class="fusion-arrow" d="M930 782V826" />
-    <path class="fusion-arrow" d="M1093 867H1137" />
-    <path class="loss-arrow" d="M1396 867H1547" />
+  <g id="boundary-detail" aria-label="Boundary weight from source-aligned edit probability">
+    <text x="1021" y="42" class="section">Boundary weight</text>
+    <text x="1024" y="123" class="math">m</text>
+    <path class="wire" d="M1042 116H1059M1059 82V153"/>
+    <path class="flow" d="M1059 82H1080"/>
+    <path class="flow" d="M1059 153H1080"/>
+    <path class="flow" d="M1118 82H1150V105"/>
+    <path class="flow" d="M1118 153H1150V127"/>
+    <path class="flow" d="M1161 116H1180"/>
+    <path class="flow" d="M1048 116V181H1212V139"/>
+    <path class="flow" d="M1243 116H1270"/>
+    <circle class="junction" cx="1048" cy="116" r="2.5"/>
+    <rect x="1082" y="52" width="36" height="61" fill="#f6c7c9"/>
+    <text class="op-label mid" transform="translate(1100 82.5) rotate(-90)" dy="5.5">Max₃</text>
+    <rect x="1082" y="124" width="36" height="58" fill="#f6c7c9"/>
+    <text class="op-label mid" transform="translate(1100 153) rotate(-90)" dy="5.5">Min₃</text>
+    <circle cx="1150" cy="116" r="9" fill="#fafafa" stroke="#1b3150" stroke-width="1.7"/>
+    <path d="M1145 116H1155" class="wire"/>
+    <rect x="1182" y="97" width="61" height="38" rx="0" fill="#e1dedc" class="box"/>
+    <text x="1212.5" y="122" class="detail-label mid">max</text>
+    <text x="1275" y="122" class="math">g</text>
+    <text x="1154" y="202" class="reading mid">m = source-aligned edit probability</text>
   </g>
-  <g id="p1" aria-label="STAGE 1 INTERNAL">
-    <text x="310" y="228" class="eyebrow">STAGE 1</text>
-    <rect x="310" y="254" width="238" height="110" rx="14" class="block lstm" />
-    <text x="429" y="302" class="block-title centered">First LSTM</text>
-    <text x="429" y="334" class="detail centered">Block 1</text>
-    <rect x="324" y="401" width="210" height="52" rx="9" class="projection" />
-    <text x="429" y="422" class="projection-title centered">MidFPred · F1</text>
-    <text x="429" y="442" class="fine centered">Linear → GELU → Linear</text>
-    <rect x="310" y="488" width="238" height="116" rx="13" class="prediction" />
-    <rect x="311" y="503" width="4" height="86" rx="2" class="lstm-accent" />
-    <text x="329" y="518" class="prediction-label">P1   ·   INTERNAL</text>
-    <text x="329" y="555" class="prediction-title">Coarse word scores</text>
-    <text x="329" y="582" class="detail">Locate likely edits</text>
-    <rect x="310" y="654" width="238" height="68" rx="10" class="loss" />
-    <text x="429" y="681" class="loss-title centered">Word cross-entropy</text>
-    <text x="429" y="704" class="fine centered">Replace or retain labels</text>
+  <g id="notation" aria-label="Diagram notation">
+    <text x="1331" y="42" class="section">Notation</text>
+    <use xlink:href="#concatenation" transform="translate(1352 80)"/>
+    <use xlink:href="#multiply" transform="translate(1352 130)"/>
+    <use xlink:href="#addition" transform="translate(1352 179)"/>
+    <use xlink:href="#stage-arrow" transform="translate(1638 80)"/>
+    <text x="1376" y="87" font-size="24">Concatenation</text>
+    <text x="1376" y="137" font-size="24">Multiplication</text>
+    <text x="1376" y="186" font-size="24">Addition</text>
+    <text x="1665" y="87" font-size="24">Next stage</text>
+    <text x="1638" y="137" class="prediction mid">Pᵢ</text>
+    <text x="1665" y="137" font-size="24">Prediction</text>
+    <path class="supervision" d="M1621 179H1653"/>
+    <text x="1665" y="186" font-size="24">Supervision</text>
   </g>
-  <g id="p2" aria-label="STAGE 2 INTERNAL">
-    <text x="726" y="228" class="eyebrow">STAGE 2</text>
-    <rect x="726" y="254" width="240" height="110" rx="14" class="block lstm" />
-    <text x="846" y="302" class="block-title centered">Second LSTM</text>
-    <text x="846" y="334" class="detail centered">Block 2</text>
-    <rect x="741" y="401" width="210" height="52" rx="9" class="projection" />
-    <text x="846" y="422" class="projection-title centered">MidFPred · F2</text>
-    <text x="846" y="442" class="fine centered">Linear → GELU → Linear</text>
-    <rect x="726" y="488" width="240" height="116" rx="13" class="prediction" />
-    <rect x="727" y="503" width="4" height="86" rx="2" class="lstm-accent" />
-    <text x="745" y="518" class="prediction-label">P2   ·   INTERNAL</text>
-    <text x="745" y="555" class="prediction-title">Single-word edits</text>
-    <text x="745" y="582" class="detail">Replace or retain</text>
-    <rect x="726" y="654" width="240" height="68" rx="10" class="loss" />
-    <text x="846" y="681" class="loss-title centered">Word cross-entropy</text>
-    <text x="846" y="704" class="fine centered">Replace or retain labels</text>
+  <g id="backbone" aria-label="Six-layer sequence backbone">
+    <text x="147" y="48" class="mid" font-size="32" font-weight="700">LexiFAR</text>
+    <rect x="38" y="64" width="218" height="85" fill="#242c35" stroke="#9b9da0" stroke-width="4"/>
+    <text x="147" y="84" class="source-label mid" font-size="13" style="fill:#e2e5e5">Source sentence</text>
+    <text x="147" y="111" class="mid" font-size="23" style="fill:#fff">We <tspan font-style="italic" fill="#ffdda0">get</tspan> access</text>
+    <text x="147" y="136" class="mid" font-size="23" style="fill:#fff">to the records.</text>
+    <path class="gray-flow" d="M147 151V174"/>
+    <rect x="45" y="177" width="204" height="49" rx="5" fill="#f9f9f8" stroke="#8e9496" stroke-width="2.7"/>
+    <text x="147" y="198" class="detail-label mid">BPE + embeddings</text>
+    <text x="147" y="216" class="reading mid">Token · position · segment</text>
+    <path class="gray-flow" d="M147 227V264"/>
+    <rect x="39" y="270" width="220" height="48" fill="#283c50" opacity=".18"/>
+    <rect x="37" y="268" width="220" height="48" rx="0" fill="#edbaa2" class="box"/>
+    <rect x="39.5" y="270.5" width="215" height="43" fill="none" stroke="#fff3d5" stroke-width="1"/>
+    <text x="147" y="298" class="node-label mid">LSTM block</text>
+    <text x="247" y="307" class="reading end">×1</text>
+    <path class="gray-flow" d="M147 318V338"/>
+    <rect x="79" y="341" width="136" height="24" rx="0" fill="#f8d9d8" class="box"/>
+    <text x="147" y="359" class="reading mid">Fuse E₁</text>
+    <use xlink:href="#stage-arrow" transform="translate(147 378)"/>
+    <rect x="39" y="392" width="220" height="48" fill="#283c50" opacity=".18"/>
+    <rect x="37" y="390" width="220" height="48" rx="0" fill="#edbaa2" class="box"/>
+    <rect x="39.5" y="392.5" width="215" height="43" fill="none" stroke="#fff3d5" stroke-width="1"/>
+    <text x="147" y="420" class="node-label mid">LSTM block</text>
+    <text x="247" y="429" class="reading end">×1</text>
+    <path class="gray-flow" d="M147 440V458"/>
+    <rect x="79" y="461" width="136" height="24" rx="0" fill="#f8d9d8" class="box"/>
+    <text x="147" y="479" class="reading mid">Fuse E₂</text>
+    <use xlink:href="#stage-arrow" transform="translate(147 494)"/>
   </g>
-  <g id="p3" aria-label="STAGE 3 AUXILIARY">
-    <text x="1144" y="228" class="eyebrow">STAGE 3</text>
-    <rect x="1144" y="254" width="240" height="110" rx="14" class="block transformer" />
-    <text x="1264" y="302" class="block-title centered">2 × Transformer</text>
-    <text x="1264" y="334" class="detail centered">Blocks 3–4</text>
-    <rect x="1159" y="401" width="210" height="52" rx="9" class="projection" />
-    <text x="1264" y="422" class="projection-title centered">MidFPred · F3</text>
-    <text x="1264" y="442" class="fine centered">Linear → GELU → Linear</text>
-    <rect x="1144" y="488" width="240" height="116" rx="13" class="prediction" />
-    <rect x="1145" y="503" width="4" height="86" rx="2" class="transformer-accent" />
-    <text x="1163" y="518" class="prediction-label">P3   ·   AUXILIARY</text>
-    <text x="1163" y="555" class="prediction-title">Sentence prediction</text>
-    <text x="1163" y="582" class="detail">Plus refined word scores</text>
-    <rect x="1144" y="654" width="240" height="68" rx="10" class="loss" />
-    <text x="1264" y="681" class="loss-title centered">Sentence CE + word CE</text>
-    <text x="1264" y="704" class="fine centered">Reference tokens and word labels</text>
+  <g aria-label="Two Transformer blocks">
+    <rect x="39" y="506" width="220" height="96" fill="#293b50" opacity=".18"/>
+    <rect x="37" y="504" width="220" height="96" fill="#c7d9c3" class="box"/>
+    <rect x="39.5" y="506.5" width="215" height="91" fill="none" stroke="#f0ebc8"/>
+    <rect x="48" y="512" width="198" height="27" fill="#aabcae" stroke="#283d57" stroke-width="1.5" stroke-dasharray="8 4"/>
+    <rect x="48" y="543" width="198" height="27" fill="#aabcae" stroke="#283d57" stroke-width="1.5" stroke-dasharray="8 4"/>
+    <text x="147" y="532" class="detail-label mid">Causal self-attention</text>
+    <text x="147" y="563" class="detail-label mid">Feed-forward</text>
+    <text x="147" y="592" class="group-label mid">Transformer</text>
+    <text x="248" y="592" class="reading end">×2</text>
   </g>
-  <g id="f4" aria-label="STAGE 4 FEATURES">
-    <text x="1562" y="228" class="eyebrow">STAGE 4</text>
-    <rect x="1562" y="254" width="240" height="110" rx="14" class="block mamba" />
-    <text x="1682" y="302" class="block-title centered">2 × Mamba</text>
-    <text x="1682" y="334" class="detail centered">Blocks 5–6</text>
-    <rect x="1577" y="401" width="210" height="52" rx="9" class="projection" />
-    <text x="1682" y="422" class="projection-title centered">MidFPred · F4</text>
-    <text x="1682" y="442" class="fine centered">Linear → GELU → Linear</text>
+  <g aria-label="Two Mamba blocks">
+    <rect x="39" y="661" width="220" height="96" fill="#293b50" opacity=".18"/>
+    <rect x="37" y="659" width="220" height="96" fill="#c7d9c3" class="box"/>
+    <rect x="39.5" y="661.5" width="215" height="91" fill="none" stroke="#f0ebc8"/>
+    <rect x="48" y="667" width="198" height="27" fill="#aabcae" stroke="#283d57" stroke-width="1.5" stroke-dasharray="8 4"/>
+    <rect x="48" y="698" width="198" height="27" fill="#aabcae" stroke="#283d57" stroke-width="1.5" stroke-dasharray="8 4"/>
+    <text x="147" y="687" class="detail-label mid">LayerNorm</text>
+    <text x="147" y="718" class="detail-label mid">Gated SSM mixer</text>
+    <text x="147" y="747" class="group-label mid">Mamba</text>
+    <text x="248" y="747" class="reading end">×2</text>
   </g>
-  <g id="e1" aria-label="E1 word feedback">
-    <rect x="575" y="267" width="124" height="84" rx="12" class="gate" />
-    <text x="637" y="303" class="gate-title centered">Word edit</text>
-    <text x="637" y="327" class="gate-title centered">fusion</text>
-    <rect x="575" y="508" width="124" height="76" rx="10" class="guide" />
-    <text x="637" y="539" class="guide-title centered">E1 guide</text>
-    <text x="637" y="562" class="guide-detail centered">Span + vector</text>
+  <g aria-label="Input to the Mamba stage">
+    <path class="gray-flow" d="M147 602V612"/>
+    <rect x="79" y="614" width="136" height="24" rx="0" fill="#f8d9d8" class="box"/>
+    <text x="147" y="632" class="reading mid">Fuse E₃</text>
+    <use xlink:href="#stage-arrow" transform="translate(147 649)"/>
+    <text x="147" y="792" class="note mid">T = sequence length · d = 192</text>
   </g>
-  <g id="e2" aria-label="E2 word feedback">
-    <rect x="993" y="267" width="124" height="84" rx="12" class="gate" />
-    <text x="1055" y="303" class="gate-title centered">Word edit</text>
-    <text x="1055" y="327" class="gate-title centered">fusion</text>
-    <rect x="993" y="508" width="124" height="76" rx="10" class="guide" />
-    <text x="1055" y="539" class="guide-title centered">E2 guide</text>
-    <text x="1055" y="562" class="guide-detail centered">Span + vector</text>
+  <g aria-label="Central stage panel headings">
+    <text x="314" y="255" class="section">Stage projections and fusion</text>
+    <text x="1394" y="254" class="note end" font-style="italic">Training supervision</text>
   </g>
-  <g id="e3" aria-label="E3 word feedback">
-    <rect x="1411" y="267" width="124" height="84" rx="12" class="gate" />
-    <text x="1473" y="303" class="gate-title centered">Word edit</text>
-    <text x="1473" y="327" class="gate-title centered">fusion</text>
-    <rect x="1411" y="508" width="124" height="76" rx="10" class="guide" />
-    <text x="1473" y="539" class="guide-title centered">E3 guide</text>
-    <text x="1473" y="562" class="guide-detail centered">Span + vector</text>
+  <!-- Each stage has a separate route into the per-token concatenation. -->
+  <g id="feature-fusion-routes" aria-label="Four independent projected features enter the concatenation">
+    <path id="fusion-f1" class="fusion-wire" d="M600 319V331H676V682H738"/>
+    <path id="fusion-f2" class="fusion-wire" d="M600 441V452H657V695H738"/>
+    <path id="fusion-f3" class="fusion-wire" d="M600 579V592H638V708H738"/>
+    <path id="fusion-f4" class="fusion-wire" d="M613 707H619V721H738"/>
   </g>
-
-  <g id="p4" aria-label="Stage fusion and sole final prediction">
-    <text x="58" y="856" class="eyebrow">FINAL FUSION</text>
-    <text x="58" y="883" class="detail">Four feature streams at each token position</text>
-    <rect x="768" y="829" width="324" height="75" rx="11" class="fusion-box" />
-    <text x="930" y="860" class="fusion-title centered">Concatenate F1–F4</text>
-    <text x="930" y="885" class="detail centered">Learned projection 4d → d</text>
-    <rect x="1140" y="823" width="255" height="87" rx="12" class="prediction" />
-    <rect x="1141" y="835" width="4" height="63" rx="2" class="fusion-accent" />
-    <text x="1159" y="851" class="prediction-label">P4   ·   FINAL OUTPUT</text>
-    <text x="1159" y="883" class="prediction-title">Sentence rewrite</text>
-    <rect x="1550" y="829" width="252" height="75" rx="10" class="loss" />
-    <text x="1676" y="859" class="loss-title centered">Sentence cross-entropy</text>
-    <text x="1676" y="884" class="fine centered">Reference output tokens</text>
+  <g id="stage-1" aria-label="Stage 1 projected features">
+    <path class="flow" d="M258 292H438"/>
+    <text x="350" y="284" class="math mid">H₁ (T × d)</text>
+    <text x="350" y="314" class="stage-label mid">Stage 1</text>
+    <use xlink:href="#projection-box" transform="translate(441 292)"/>
+    <path class="flow" d="M565 292H590"/>
+    <use xlink:href="#feature-sheet" transform="translate(592 292)"/>
+    <text x="585" y="327" class="feature-label end">F₁</text>
+    <path class="bridge" d="M623 292H690"/>
+    <path class="flow" d="M612 292H728"/>
+    <use xlink:href="#word-head-box" transform="translate(730 292)"/>
+    <path class="flow" d="M921 292H960"/>
+    <text x="982" y="301" class="prediction mid">P₁</text>
+    <path class="supervision" d="M1015 292H1171"/>
+    <text x="1093" y="284" class="super-label mid">Word CE</text>
+    <text x="1190" y="299" class="truth">Word label</text>
+    <g id="e1" aria-label="Source-only word guide E1 feeds the next backbone stage">
+      <path class="flow" d="M982 308V353H923"/>
+      <use xlink:href="#build-guide-box" transform="translate(730 353)"/>
+      <path class="bridge" d="M623 353H690"/>
+      <path class="flow" d="M729 353H217"/>
+      <text x="708" y="345" class="math mid">E₁</text>
+    </g>
   </g>
-  <g aria-label="Weighted training objective">
-    <rect x="58" y="961" width="1744" height="145" rx="16" fill="#f3eff8" stroke="#d6cbe5" stroke-width="1.4" />
-    <text x="82" y="1004" class="objective-title">Joint training objective</text>
-    <text x="82" y="1047" class="formula">L = 0.50 CE(P3 auxiliary) + 0.50 CE(P4 final) + 0.25 mean(CE(P1 word), CE(P2 word), CE(P3 word))</text>
-    <text x="82" y="1079" class="detail">CE = cross-entropy. Word labels and sentence references contribute to the same optimizer update.</text>
+  <g id="stage-2" aria-label="Stage 2 projected features">
+    <path class="flow" d="M258 414H438"/>
+    <text x="350" y="406" class="math mid">H₂ (T × d)</text>
+    <text x="350" y="436" class="stage-label mid">Stage 2</text>
+    <use xlink:href="#projection-box" transform="translate(441 414)"/>
+    <path class="flow" d="M565 414H590"/>
+    <use xlink:href="#feature-sheet" transform="translate(592 414)"/>
+    <text x="585" y="449" class="feature-label end">F₂</text>
+    <path class="bridge" d="M623 414H690"/>
+    <path class="flow" d="M612 414H728"/>
+    <use xlink:href="#word-head-box" transform="translate(730 414)"/>
+    <path class="flow" d="M921 414H960"/>
+    <text x="982" y="423" class="prediction mid">P₂</text>
+    <path class="supervision" d="M1015 414H1171"/>
+    <text x="1093" y="406" class="super-label mid">Word CE</text>
+    <text x="1190" y="421" class="truth">Word label</text>
+    <g id="e2" aria-label="Source-only word guide E2 feeds the next backbone stage">
+      <path class="flow" d="M982 430V473H923"/>
+      <use xlink:href="#build-guide-box" transform="translate(730 473)"/>
+      <path class="bridge" d="M623 473H690"/>
+      <path class="flow" d="M729 473H217"/>
+      <text x="708" y="465" class="math mid">E₂</text>
+    </g>
   </g>
-  <text x="60" y="1146" class="detail">Each guide uses a boundary weight and a probability-weighted replacement vector aligned to the source word.</text>
+  <g id="stage-3" aria-label="Stage 3 projected features">
+    <path class="flow" d="M258 552H438"/>
+    <text x="350" y="544" class="math mid">H₃ (T × d)</text>
+    <text x="350" y="574" class="stage-label mid">Stage 3</text>
+    <use xlink:href="#projection-box" transform="translate(441 552)"/>
+    <path class="flow" d="M565 552H590"/>
+    <use xlink:href="#feature-sheet" transform="translate(592 552)"/>
+    <text x="585" y="587" class="feature-label end">F₃</text>
+    <path class="bridge" d="M623 552H690"/>
+    <path class="flow" d="M612 552H728"/>
+    <use xlink:href="#word-head-box" transform="translate(730 552)"/>
+    <path class="flow" d="M921 552H960"/>
+    <text x="982" y="561" class="prediction mid">P₃</text>
+    <path class="supervision" d="M1015 552H1171"/>
+    <text x="1093" y="544" class="super-label mid">Word CE</text>
+    <text x="1190" y="559" class="truth">Word label</text>
+    <g id="e3" aria-label="Source-only word guide E3 feeds the next backbone stage">
+      <path class="flow" d="M982 568V626H923"/>
+      <use xlink:href="#build-guide-box" transform="translate(730 626)"/>
+      <path class="bridge" d="M623 626H690"/>
+      <path class="flow" d="M729 626H217"/>
+      <text x="708" y="618" class="math mid">E₃</text>
+    </g>
+    <circle class="junction" cx="709" cy="552" r="2.8"/>
+    <path class="flow" d="M709 552V510H728"/>
+    <rect x="730" y="495" width="190" height="30" rx="0" fill="#f3d3bf" class="box"/>
+    <text x="825" y="516" class="detail-label mid">Aux. sentence head</text>
+    <path class="flow" d="M921 510H952"/>
+    <text x="981" y="516" class="math mid">P₃<tspan baseline-shift="super" font-style="normal" font-size="12">aux</tspan></text>
+    <path class="supervision" d="M1015 510H1171"/>
+    <text x="1093" y="501" class="super-label mid">Sentence CE</text>
+    <text x="1190" y="517" class="truth">Reference tokens</text>
+  </g>
+  <g id="stage-4" aria-label="Stage 4 projected features">
+    <path class="flow" d="M258 707H438"/>
+    <text x="350" y="699" class="math mid">H₄ (T × d)</text>
+    <text x="350" y="729" class="stage-label mid">Stage 4</text>
+    <use xlink:href="#projection-box" transform="translate(441 707)"/>
+    <path class="flow" d="M565 707H590"/>
+    <use xlink:href="#feature-sheet" transform="translate(592 707)"/>
+    <text x="585" y="742" class="feature-label end">F₄</text>
+  </g>
+  <g id="p4" aria-label="Concatenation, learned four-to-one projection, tied vocabulary head and sole final rewrite">
+    <g id="concatenated-features" aria-label="Concatenate F1 through F4 per token">
+      <use xlink:href="#feature-sheet" transform="translate(764 703)"/>
+      <use xlink:href="#feature-sheet" transform="translate(756 703)"/>
+      <use xlink:href="#feature-sheet" transform="translate(748 703)"/>
+      <use xlink:href="#feature-sheet" transform="translate(740 703)"/>
+      <use xlink:href="#concatenation" transform="translate(758 657)"/>
+      <text x="761" y="753" class="reading mid">F₁, F₂, F₃, F₄</text>
+    </g>
+    <path class="flow" d="M784 707H803"/>
+    <rect x="806" y="683" width="104" height="48" fill="#c8dbee" class="box"/>
+    <text x="858" y="704" class="detail-label mid">Linear</text>
+    <text x="858" y="723" class="reading mid">4d → d</text>
+    <path class="flow" d="M911 707H937"/>
+    <rect x="942" y="685" width="141" height="48" fill="#293b50" opacity=".16"/>
+    <rect x="940" y="683" width="141" height="48" fill="#edbaa2" class="box"/>
+    <rect x="942.5" y="685.5" width="136" height="43" fill="none" stroke="#fff0d1"/>
+    <text x="1010.5" y="704" class="detail-label mid">LayerNorm</text>
+    <text x="1010.5" y="723" class="reading mid">Tied vocab. head</text>
+    <path class="flow" d="M1082 707H1108"/>
+    <text x="1150" y="706" class="prediction mid">P₄</text>
+    <text x="1150" y="733" class="detail-label mid" font-weight="700">Final rewrite</text>
+    <path class="supervision" d="M1190 704H1297"/>
+    <text x="1243" y="694" class="super-label mid">Sentence CE</text>
+    <text x="1353" y="703" class="truth mid">Reference</text>
+    <text x="1353" y="725" class="truth mid">tokens</text>
+  </g>
+  <g aria-label="One joint training objective for all stages">
+    <path d="M317 766H1393" fill="none" stroke="#d2cfbd" stroke-width="1.2"/>
+    <text x="318" y="800" font-size="21" font-weight="700">Joint training loss</text>
+    <text x="501" y="800" font-size="21"><tspan font-style="italic">L</tspan> = 0.25 mean(CE<tspan baseline-shift="sub" font-size="14">w,1</tspan>, CE<tspan baseline-shift="sub" font-size="14">w,2</tspan>, CE<tspan baseline-shift="sub" font-size="14">w,3</tspan>) + 0.50 CE<tspan baseline-shift="sub" font-size="14">aux</tspan> + 0.50 CE<tspan baseline-shift="sub" font-size="14">final</tspan></text>
+  </g>
+  <g id="word-edit-detail" aria-label="Shared contextual single-word edit module">
+    <text x="1443" y="257" class="section">Contextual word edit module</text>
+    <text x="1444" y="278" class="note">Shared at P₁, P₂ and P₃</text>
+    <text x="1668" y="306" class="math mid">Source features Fᵢ</text>
+    <path class="wire" d="M1668 311V320M1560 320H1780"/>
+    <path class="flow" d="M1560 320V330"/>
+    <path class="flow" d="M1780 320V330"/>
+    <rect x="1477" y="332" width="166" height="30" rx="0" fill="#f6f6f5" class="box"/>
+    <text x="1560" y="353" class="detail-label mid">Word-end state</text>
+    <rect x="1688" y="332" width="184" height="30" rx="0" fill="#f6f6f5" class="box"/>
+    <text x="1780" y="353" class="detail-label mid">Sentence-end state</text>
+    <path class="flow" d="M1560 363V383H1656"/>
+    <path class="flow" d="M1780 363V383H1680"/>
+    <use xlink:href="#concatenation" transform="translate(1668 383)"/>
+    <path class="flow" d="M1668 394V405"/>
+    <rect x="1522" y="407" width="292" height="34" rx="0" fill="#edbaa2" class="box"/>
+    <rect x="1524.5" y="409.5" width="287" height="29" fill="none" stroke="#fff3d5" stroke-width="1"/>
+    <text x="1668" y="430" class="detail-label mid">Word head + masked softmax</text>
+    <path class="wire" d="M1668 442V456M1560 456H1780"/>
+    <path class="flow" d="M1560 456V468"/>
+    <path class="flow" d="M1780 456V468"/>
+    <rect x="1477" y="470" width="166" height="34" rx="0" fill="#fae1df" class="box"/>
+    <text x="1560" y="493" class="detail-label mid">1 − p(KEEP)</text>
+    <rect x="1688" y="470" width="184" height="34" fill="#fae1df" class="box"/>
+    <text x="1780" y="492" class="math mid">Σ<tspan baseline-shift="sub" font-size="12">c ≠ KEEP</tspan> p(c) v<tspan baseline-shift="sub" font-size="12">c</tspan></text>
+    <path class="flow" d="M1560 505V526"/>
+    <path class="flow" d="M1780 505V526"/>
+    <rect x="1477" y="528" width="166" height="34" rx="0" fill="#f6f6f5" class="box"/>
+    <text x="1560" y="551" class="detail-label mid">Span + boundary</text>
+    <rect x="1688" y="528" width="184" height="34" rx="0" fill="#f6f6f5" class="box"/>
+    <text x="1780" y="551" class="detail-label mid">Align to word span</text>
+    <path class="flow" d="M1560 563V587H1694V615"/>
+    <text x="1575" y="579" class="math">gᵢ</text>
+    <path class="flow" d="M1780 563V686H1706"/>
+    <text x="1792" y="587" class="math">rᵢ</text>
+    <text x="1445" y="635" class="math">Hᵢ</text>
+    <path class="flow" d="M1468 627H1515"/>
+    <circle class="junction" cx="1492" cy="627" r="2.8"/>
+    <rect x="1518" y="611" width="142" height="32" rx="0" fill="#f6f6f5" class="box"/>
+    <text x="1589" y="633" class="detail-label mid">Norm + Linear</text>
+    <path class="flow" d="M1661 627H1682"/>
+    <use xlink:href="#multiply" transform="translate(1694 627)"/>
+    <path class="flow" d="M1694 638V674"/>
+    <path class="flow" d="M1492 627V686H1682"/>
+    <use xlink:href="#addition" transform="translate(1694 686)"/>
+    <path class="flow" d="M1694 697V718"/>
+    <rect x="1586" y="722" width="220" height="36" fill="#283c50" opacity=".18"/>
+    <rect x="1584" y="720" width="220" height="36" rx="0" fill="#f6c7c9" class="box"/>
+    <text x="1694" y="744" class="detail-label mid">Next-stage features</text>
+    <text x="1668" y="794" class="math mid">H′ᵢ = Hᵢ + gᵢ · W LN(Hᵢ) + rᵢ</text>
+  </g>
 </svg>
