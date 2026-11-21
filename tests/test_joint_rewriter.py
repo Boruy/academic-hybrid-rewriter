@@ -183,11 +183,13 @@ class JointRewriterTests(unittest.TestCase):
                                             '--batch-size', '2', '--max-length', '24', '--checkpoint-selection', 'final'])
             flags = ['--checkpoint', str(output), '--data', str(root), '--device', 'cpu',
                      '--split', 'test', '--max-new-tokens', '8', '--limit', '0']
-            with contextlib.redirect_stdout(io.StringIO()):
+            with contextlib.redirect_stdout(io.StringIO()) as console:
                 trained = run(training)
                 metrics = evaluate_checkpoint(evaluation_parser().parse_args(flags + ['--word-test', str(reviewed)]))
                 with self.assertRaisesRegex(ValueError, 'separate, nonsynthetic'):
                     evaluate_checkpoint(evaluation_parser().parse_args(flags + ['--word-test', str(words)]))
+            self.assertRegex(console.getvalue(), r'(?m)^\[train 1/1\] loss=\S+ ma20=\S+ '
+                                                 r'p3_ce=\S+ p4_ce=\S+ word_ce=\S+ lr=\S+ elapsed=\S+$')
             self.assertFalse(trained['test_set_used'])
             self.assertEqual(trained['rewrite_modes'], ['final'])
             self.assertTrue(trained['fuse_stage_outputs'])

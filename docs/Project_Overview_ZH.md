@@ -70,6 +70,8 @@ $sentence = 'The proposed method gets better results than the baseline.'
 & $python -m academic_rewriter.test --checkpoint $runDir --split test --limit 0
 ```
 
+训练终端默认每步打印总损失、近 20 步平均损失、P3 和 P4 的句级交叉熵、词级交叉熵、学习率和耗时，并显示验证的开始与结果。加 `--log-every 10` 可改为每 10 步打印一次。`training_progress.jsonl` 保存逐步记录。
+
 `--limit 0` 测试全部 87 条真实测试样本。`evaluation/test-192/` 中的 `predictions.csv` 和 `predictions.jsonl` 按行对齐原文、人工参考和最终改写。`metrics.json` 记录最终指标、复制基线、是否启用候选词引导和内部预测点 `[1, 2, 4, 6]`。改成 `--split validation` 可诊断全部 98 条验证样本。准备好独立人工复核的词级样本后可加 `--word-test .cache/reviewed_word_pairs.jsonl`。训练权重和预测保存在本地忽略目录。
 
 要比较候选词向量的贡献，可在同样的设置下加 `--word-guidance position --output runs/six_layer_joint_v4_position` 训练位置引导的对照检查点，并用同一测试命令评估。详见[训练和测试命令](LexiFAR_Training.md#evaluate-the-entire-split)。
@@ -89,6 +91,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts/verify_integrity.ps1
 
 | 日期 | 改动 | 验证与状态 |
 | --- | --- | --- |
+| 2026-11-21 | 训练终端默认逐步打印联合损失的各分项和进度，验证开始时提示，并支持 `--log-every` 调整频率。 | 已静态核对训练入口和配置。终端输出回归待手动运行。 |
 | 2026-11-20 | 在 P1–P3 的词级引导中加入概率加权的候选词向量，提供位置引导对照选项。 | 已静态核对代码、配置和文档。候选词对齐、梯度、缓存解码、检查点加载和端到端回归待手动验证。 |
 | 2026-11-19 | 将模型命名为 LexiFAR，重命名架构文档、训练文档和模型图，同步 README 和中文总览。 | 已核对文档链接、章节锚点和图中标题。 |
 | 2026-11-19 | 把 F1–F4 拼接后融合，推理和测试只返回 P4。模型图同步标出四条特征路径和唯一的最终输出。 | 静态核对代码和图。融合梯度、缓存解码和单一输出的回归检查待手动运行。 |

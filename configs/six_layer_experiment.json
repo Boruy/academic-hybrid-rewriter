@@ -23,7 +23,7 @@
     "lr": 0.0003,
     "seed": 42,
     "eval_every": 250,
-    "log_every": 100,
+    "log_every": 1,
     "sampling": "shuffle-epochs",
     "checkpoint_selection": "best-validation",
     "early_stopping_patience": 4,

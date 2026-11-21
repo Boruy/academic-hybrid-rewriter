@@ -45,6 +45,8 @@ Use a fresh output directory for each run:
 
 Each update learns from both training corpora and combines word supervision, an auxiliary sentence objective and the fused final sentence objective. The launcher verifies the data and generator hashes. The settings use width 192, four attention heads, batch size 16, LR 3e-4, up to 2,000 updates, validation every 250 updates, best-validation checkpoint selection and early stopping. Existing weights are protected against accidental replacement.
 
+The terminal prints each optimizer update and its losses. Pass `--log-every 10` for a line every ten updates.
+
 ## Test and export final predictions
 
 ```powershell

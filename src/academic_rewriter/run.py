@@ -169,6 +169,7 @@ def run(args):
     def record_validation(step):
         nonlocal validation_seconds,best_value,best_step,unimproved
         validation_start=time.perf_counter()
+        print(f'[validation {step}/{args.steps}] Evaluating {len(val)} pairs', flush=True)
         by_depth = validation_losses()
         value = validation_score(by_depth)
         fixed_value=fixed_loss()
@@ -187,8 +188,8 @@ def run(args):
         print(f'[validation {step}/{args.steps}] loss={value:.4f} fixed_train_loss={fixed_value:.4f} lr={before:.2e} next_lr={after:.2e}',flush=True)
         validation_seconds+=time.perf_counter()-validation_start
         return entry
-    initial=fixed_loss(); log=[]; start=time.perf_counter()
     print(f'Training {args.model} on {device}: {len(train)} training pairs, {len(val)} validation pairs, {args.steps} steps',flush=True)
+    initial=fixed_loss(); log=[]; start=time.perf_counter()
     print(f'Initial fixed-batch loss: {initial:.4f}',flush=True)
     progress_path=out/'training_progress.jsonl'
     progress_path.write_text('',encoding='utf8')
@@ -217,8 +218,14 @@ def run(args):
         with progress_path.open('a',encoding='utf8') as stream:
             stream.write(json.dumps(entry)+'\n')
             stream.flush()
-        if step==0 or (step+1)%args.log_every==0 or step+1==args.steps:
-            print(f"[train {step+1}/{args.steps}] loss={entry['train_loss']:.4f} ma20={entry['train_loss_ma20']:.4f} lr={learning_rate:.2e} elapsed={time.perf_counter()-start:.1f}s",flush=True)
+        if step == 0 or (step + 1) % args.log_every == 0 or step + 1 == args.steps:
+            progress = (f"[train {step + 1}/{args.steps}] loss={loss_value:.4f} "
+                        f"ma20={entry['train_loss_ma20']:.4f}")
+            if six_config.fuse_stage_outputs:
+                progress += (f" p3_ce={entry['medium_cross_entropy']:.4f}"
+                             f" p4_ce={entry['deep_cross_entropy']:.4f}"
+                             f" word_ce={entry['word_cross_entropy']:.4f}")
+            print(f'{progress} lr={learning_rate:.2e} elapsed={time.perf_counter() - start:.1f}s', flush=True)
         if args.eval_every and (step+1)%args.eval_every==0: record_validation(step+1)
         if args.early_stopping_patience and unimproved>=args.early_stopping_patience:
             print(f'Early stopping after {step+1} updates; best validation step={best_step}',flush=True)
@@ -285,7 +292,7 @@ def parser():
     p.add_argument('--lr',type=float,help='Default: tiny=1e-3, otherwise 3e-4')
     p.add_argument('--seed',type=int,default=42)
     p.add_argument('--device')
-    p.add_argument('--log-every',type=int,default=100)
+    p.add_argument('--log-every', type=int, default=1, help='Print progress every N updates (default: 1)')
     p.add_argument('--depth', choices=CHECKPOINT_DEPTHS,
                    help='New runs default to joint; continuations use the saved depth')
     p.add_argument('--word-data', default='data/word-formality-v1/train.jsonl', help='Word training pairs for the joint model')

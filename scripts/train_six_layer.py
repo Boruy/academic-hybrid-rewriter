@@ -17,8 +17,11 @@ def main():
                         help='Default is joint; medium and deep reproduce legacy single-output runs')
     parser.add_argument('--word-guidance', choices=['position', 'candidates'],
                         help='Override the joint word guidance in the experiment config')
+    parser.add_argument('--log-every', type=int, help='Print progress every N updates')
     parser.add_argument('--print-command', action='store_true')
     args = parser.parse_args()
+    if args.log_every is not None and args.log_every < 1:
+        parser.error('--log-every must be positive')
     config = json.loads((ROOT/args.config).read_text(encoding='utf8'))
     if args.output:
         config['output'] = args.output
@@ -41,6 +44,8 @@ def main():
         settings['depth'] = args.depth
     if args.word_guidance:
         settings['word_guidance'] = args.word_guidance
+    if args.log_every is not None:
+        settings['log_every'] = args.log_every
     if settings.get('depth', 'joint') == 'joint' and 'word_data_sha256' in config:
         word_path = ROOT/settings['word_data']
         if hashlib.sha256(word_path.read_bytes()).hexdigest() != config['word_data_sha256']:
