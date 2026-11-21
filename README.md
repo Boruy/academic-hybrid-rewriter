@@ -62,6 +62,8 @@ Both commands default to `data/academic-pairs-v1`, batch size 8 and a budget of 
 
 Use `--output runs/evaluation_v2` to choose a new results directory and preserve an earlier evaluation. The CSV retains complete sentences, including commas, quotes and line breaks.
 
+Open the [offline results viewer](docs/results/index.html) in a local browser and select the completed run directory. It reads the training and validation logs plus each pair of `evaluation/<group>/metrics.json` and `predictions.jsonl` files. Switch between evaluation groups, search by ID or sentence, and compare the source, human reference and raw prediction with word-level highlighting. The training view plots the 20-step moving average and the fused validation cross-entropy. The viewer skips evaluation files that predate the current completion record or weights.
+
 ## Checks
 
 Execution remains user-controlled. The agent provides commands and does not run training, inference, data generators, tests or project scripts without an explicit execution request.

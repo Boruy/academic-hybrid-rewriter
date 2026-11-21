@@ -1,0 +1,77 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>LexiFAR · 改写结果分析</title>
+  <link rel="stylesheet" href="report.css">
+</head>
+<body>
+  <header class="mast">
+    <div class="mast-inner">
+      <a class="brand" href="#compare" aria-label="LexiFAR 样本对照"><span class="logo" aria-hidden="true"><i></i><i></i><i></i></span>LexiFAR</a>
+      <nav aria-label="报告视图"><a href="#compare" id="nav-compare" aria-current="page">样本对照</a><a href="#training" id="nav-training">训练分析</a></nav>
+      <button type="button" id="load" class="load">载入训练目录</button>
+      <input id="folder" type="file" webkitdirectory multiple hidden>
+    </div>
+  </header>
+  <main class="frame">
+    <p id="notice" class="notice" role="status" hidden></p>
+    <section id="empty" class="empty-start">
+      <h1>查看本地训练结果</h1>
+      <p>选择含有 <code>result.json</code> 和 <code>evaluation</code> 的训练目录，即可逐条查看原句、人工参考和模型预测。</p>
+      <button type="button" id="start" class="primary">选择训练目录</button>
+    </section>
+    <div id="report" hidden>
+      <section id="compare" aria-labelledby="compare-title">
+        <div class="section-heading"><div><p class="runtag"></p><h1 id="compare-title">逐条改写对照</h1></div><div id="split-switch" class="split-switch" role="group" aria-label="评估分组"></div></div>
+        <div id="no-eval" class="empty-start" hidden>此目录尚无可展示的逐条评估。训练日志可在“训练分析”中查看。</div>
+        <div id="eval-content">
+          <div id="kpis" class="kpis"></div>
+          <div class="sample-layout">
+            <aside class="sample-index" aria-label="样本索引">
+              <details id="index-toggle" open>
+              <summary class="index-heading"><span>样本索引</span><span id="count" class="count" aria-live="polite"></span></summary>
+              <div class="index-tools">
+                <label class="searchbox"><span class="glass" aria-hidden="true"></span><input type="search" id="search" placeholder="搜索句子或样本 ID" aria-label="搜索句子或样本 ID"></label>
+                <label class="selectbox"><span class="sr-only">筛选样本</span><select id="filter">
+                  <option value="all">全部样本</option><option value="below">低于复制基线</option><option value="zero">ROUGE-L 为零</option>
+                  <option value="numbers">数字不一致</option><option value="repeated">同组内预测重复</option><option value="limit">触及生成上限</option>
+                </select></label>
+              </div>
+              <div id="samples" class="samples"></div>
+              </details>
+            </aside>
+            <article class="reading" aria-label="样本详情">
+              <div id="not-found" class="no-match" hidden><h2>没有匹配的样本</h2><p>可以更换关键词或清除筛选。</p><button id="clear" type="button">清除筛选</button></div>
+              <div id="sample-detail">
+                <div class="reading-head"><div><h2 id="sample-title"></h2><code id="sample-id"></code></div><div class="pager"><button type="button" id="prev">上一条</button><button type="button" id="next">下一条</button></div></div>
+                <div class="diff-controls"><label class="selectbox paired-select"><span>差异对照</span><select id="diff">
+                  <option value="source-reference">原句 / 人工参考</option><option value="source-prediction">原句 / 模型预测</option><option value="reference-prediction">人工参考 / 模型预测</option><option value="off">关闭高亮</option>
+                </select></label><span id="diff-key" class="diff-key"><i class="removed"></i>删去<i class="added"></i>加入</span></div>
+                <div class="passages">
+                  <section class="passage source"><h3>原句</h3><p id="source" lang="en"></p></section>
+                  <section class="passage reference"><h3>人工参考</h3><p id="reference" lang="en"></p></section>
+                  <section class="passage prediction"><h3>模型预测</h3><p id="prediction" lang="en"></p></section>
+                </div>
+                <div id="row-metrics" class="row-metrics"></div>
+              </div>
+            </article>
+          </div>
+          <details class="panel aggregate"><summary>整组评估指标与计算口径</summary><div class="detail-body"><p id="split-finding"></p><div class="table-wrap"><table><thead><tr><th>指标</th><th>模型</th><th>复制原句</th></tr></thead><tbody id="metrics-table"></tbody></table></div><p class="muted">ROUGE-L 按小写、空白分词和最长公共子序列计算，逐条得分后取平均。复制基线直接用原句对照人工参考。数字按原句与预测中的数量和值核对，分母包括无数字样本。生成内容为评估文件中保存的原始预测。</p></div></details>
+        </div>
+      </section>
+      <section id="training" aria-labelledby="training-title" hidden>
+        <div class="section-heading"><div><p class="runtag"></p><h1 id="training-title">训练过程分析</h1></div></div>
+        <div id="training-kpis" class="kpis"></div>
+        <div class="charts"><section class="panel chart"><h2>训练联合损失</h2><p class="muted">最近 20 次更新的移动平均</p><div id="train-chart"></div></section>
+        <section class="panel chart"><h2>P4 验证交叉熵</h2><p class="muted">按参考 token 计算，用于选择检查点</p><div id="val-chart"></div></section></div>
+        <section class="panel findings"><h2>这次训练表现如何</h2><div id="findings"></div></section>
+        <details class="panel aggregate"><summary>逐次验证记录</summary><div class="detail-body table-wrap"><table><thead><tr><th>更新步</th><th>固定训练批损失</th><th>P3 验证 CE</th><th>P4 验证 CE</th></tr></thead><tbody id="validation-table"></tbody></table></div></details>
+      </section>
+    </div>
+  </main>
+  <script id="report-data" type="application/json">null</script>
+  <script src="report.js"></script>
+</body>
+</html>

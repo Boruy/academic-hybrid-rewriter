@@ -1,0 +1,144 @@
+:root {
+  color-scheme: light;
+  --ink: #1d3030; --muted: #526763; --line: #d4dfda; --paper: #fff; --page: #f2f5f3;
+  --pine: #15594e; --accent: #206f60; --pale: #e2efe9; --rust: #924b34; --plum: #605389;
+  font-family: Inter, "Microsoft YaHei UI", "PingFang SC", system-ui, sans-serif;
+  font-size: 100%; color: var(--ink); background: var(--page);
+}
+* {box-sizing: border-box}
+[hidden] {display: none !important}
+body {margin: 0; line-height: 1.55}
+button, input, select {font: inherit; color: inherit}
+button, select, summary {cursor: pointer}
+button {border: 1px solid #c3d2ca; border-radius: .42rem; background: white; padding: .44rem .82rem}
+button:not(:disabled):hover, select:hover {border-color: var(--accent)}
+button:disabled {color: #828f8b; background: #f4f6f4; cursor: default}
+a:focus-visible, button:focus-visible, select:focus-visible, input:focus-visible, summary:focus-visible, svg:focus-visible {outline: 3px solid #187c86; outline-offset: 3px}
+a {color: inherit}
+h1,h2,h3,p {margin: 0}
+h1 {font-size: clamp(1.75rem, 3vw, 2.55rem); letter-spacing: -.045em; line-height: 1.22; font-weight: 720}
+h2 {font-size: 1.14rem; letter-spacing: -.025em}
+code, .runtag, .kvalue, .idx, .count, .chart-value {font-family: "IBM Plex Mono", Consolas, "Microsoft YaHei UI", monospace; font-variant-numeric: tabular-nums}
+.mast {background: #153933; color: #f5fcf8}
+.mast-inner,.frame {max-width: 1600px; margin: auto; padding-inline: clamp(1rem, 3.3vw, 3.35rem)}
+.mast-inner {display: flex; align-items: center; gap: clamp(.8rem,4vw,3.8rem); min-height: 4.1rem}
+.brand {display: inline-flex; align-items: center; gap: .7rem; font: 650 1.8rem/1 Georgia, "STIX Two Text", serif; text-decoration: none; letter-spacing: -.055em}
+.logo {display: flex; align-items: center; gap: 3px; height: 1.35rem; transform: skewY(-14deg)}
+.logo i {height: 95%; width: .28rem; background: #a4d7bb}
+.logo i:nth-child(2) {height: 75%; background: #d5e8b6}
+.logo i:nth-child(3) {height: 54%; background: #f5f0c9}
+nav {display: flex; align-self: stretch; gap: clamp(.8rem,2.5vw,2.4rem)}
+nav a {display: grid; align-items: center; padding: .15rem .12rem 0; border-bottom: 3px solid transparent; text-decoration: none; color: #c4d8cd; font-weight: 600; font-size: .95rem}
+nav a[aria-current] {color: white; border-color: #badca1}
+.load {margin-left: auto; color: #f0f8f3; background: #254b43; border-color: #588071; font-size: .9rem}
+button.load:hover {background: #2d594d}
+.frame {padding-block: 1.75rem 3.25rem}
+.section-heading,.reading-head,.diff-controls {display: flex; justify-content: space-between; align-items: center; gap: .75rem}
+#compare,#training {scroll-margin-top: 7rem}
+.section-heading {align-items: end; flex-wrap: wrap; margin-block: 0 1.15rem}
+.runtag {font-size: .84rem; color: var(--muted); margin-bottom: .34rem; overflow-wrap: anywhere}
+.split-switch {display: flex; flex-wrap: wrap; gap: .24rem; border-radius: .5rem; padding: .24rem; border: 1px solid var(--line); background: #e8eee9}
+.split-switch:empty {display: none}
+.split-switch button {background: transparent; border: 1px solid transparent; font-size: .92rem; padding: .38rem .8rem}
+.split-switch button[aria-pressed="true"] {color: #fff; background: var(--pine); border-color: var(--pine)}
+.kpis {display: grid; grid-template-columns: repeat(4,minmax(0,1fr)); gap: 1px; border: 1px solid var(--line); overflow: hidden; border-radius: .6rem; background: var(--line); margin-bottom: 1.3rem}
+.kpi {background: var(--paper); padding: .9rem 1.15rem 1rem; min-width: 0}
+.klabel,.kfoot,.muted {color: var(--muted)}
+.klabel,.kfoot,.runtag,.count,.diff-key,.selectbox, .row-metrics,.pager, table {font-size: .9rem}
+.kvalue {display: block; font-weight: 650; font-size: clamp(1.48rem,2.2vw,2.08rem); line-height: 1.2; letter-spacing: -.05em; margin: .23rem 0 .15rem; overflow-wrap: anywhere}
+.kpi:first-child .kvalue {color: var(--pine)}
+.kfoot {font-size: .82rem}
+.sample-layout {display: grid; grid-template-columns: clamp(13rem,18.4vw,18.5rem) minmax(0,1fr); gap: 1rem; align-items: start}
+.sample-index,.reading,.panel,.empty-start {background: var(--paper); border: 1px solid var(--line); border-radius: .6rem}
+.index-tools,.reading-head,.diff-controls {padding: .85rem 1rem}
+.index-heading {padding: .82rem 1rem; font-weight: 650}
+.index-heading .count {float: right; font-weight: 400}
+.index-tools {display: grid; gap: .65rem; padding-top: 0; border-bottom: 1px solid var(--line)}
+.count {color: var(--muted); white-space: nowrap}
+.searchbox,.selectbox {display: flex; align-items: center; position: relative; min-width: 0}
+.searchbox input,.selectbox select {border: 1px solid #becdc5; border-radius: .36rem; height: 2.27rem; width: 100%; background: #fff; font-size: .9rem}
+.searchbox input {padding: .3rem .45rem .3rem 2rem; min-width: 0}
+.glass {position: absolute; pointer-events: none; left: .68rem; width: .7rem; height: .7rem; border: 1.6px solid #586d64; border-radius: 50%}
+.glass::after {content: ""; position: absolute; width: .34rem; height: 1.6px; background: #586d64; transform: rotate(45deg); top: .53rem; left: .48rem}
+.selectbox select {appearance: none; padding: .25rem 1.9rem .25rem .62rem}
+.selectbox::after {content: ""; width: .38rem; height: .38rem; border: solid var(--muted); border-width: 0 1.5px 1.5px 0; transform: rotate(45deg); position: absolute; right: .8rem; pointer-events: none; margin-top: -.2rem}
+.samples {max-height: 31rem; overflow-y: auto; overscroll-behavior: contain}
+.sample-button {display: block; text-align: left; width: 100%; padding: .52rem .85rem .62rem; border: 0; border-bottom: 1px solid #e5ebe6; border-left: 3px solid transparent; border-radius: 0; line-height: 1.35}
+.sample-button:hover {background: #f1f6f2}
+.sample-button[aria-current] {background: var(--pale); border-left-color: var(--accent)}
+.sample-button .idx {display: block; color: var(--pine); font-size: .82rem; margin-bottom: .15rem}
+.snippet {display: block; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; color: #374b48; font-size: .9rem}
+.reading {min-width: 0}
+.reading-head {border-bottom: 1px solid var(--line)}
+.reading-head h2 {font-size: 1.3rem}
+.reading-head code {font-size: .82rem; color: var(--muted)}
+.pager {display: flex; gap: .42rem}
+.pager button {white-space: nowrap}
+.diff-controls {justify-content: flex-start; flex-wrap: wrap; padding-block: .7rem}
+.paired-select {gap: .5rem; color: var(--muted)}
+.paired-select span {white-space: nowrap}
+.paired-select select {width: auto; color: var(--ink)}
+.diff-key {display: flex; align-items: center; gap: .32rem; color: var(--muted)}
+.diff-key i {display: inline-block; width: .8rem; height: .68rem; margin-left: .4rem; border-radius: .12rem}
+.removed {background: #fae2dc; color: #843a29; text-decoration: line-through; text-decoration-thickness: 1px}
+.added {background: #d7ebc9; color: #244c2c}
+.passages {display: grid; grid-template-columns: repeat(3,minmax(0,1fr)); padding: .1rem 1rem 1rem; gap: .65rem}
+.passage {min-width: 0; border: 1px solid var(--line); border-radius: .33rem; padding: .75rem .82rem .95rem; border-top: 3px solid; min-height: 11rem}
+.passage.source {border-top-color: #687974; background: #fafbfa}
+.passage.reference {border-top-color: var(--accent); background: #f5faf6}
+.passage.prediction {border-top-color: var(--plum); background: #f8f7fc}
+.passage h3 {font-size: .92rem; margin-bottom: .62rem}
+.reference h3 {color: var(--pine)} .prediction h3 {color: #534578}
+.passage p {font-family: "STIX Two Text", Georgia, "Times New Roman", serif; font-size: 1.08rem; line-height: 1.61; overflow-wrap: anywhere; white-space: pre-wrap}
+.passage .blank {font: inherit; color: var(--muted)}
+.row-metrics {display: flex; flex-wrap: wrap; gap: .32rem 1.15rem; border-top: 1px solid var(--line); background: #f8faf8; padding: .75rem 1rem; color: var(--muted); border-radius: 0 0 .6rem .6rem}
+.row-metrics b {color: var(--ink); font-weight: 600}
+.panel {margin-top: 1rem}
+.aggregate summary {font-weight: 650; padding: .9rem 1.15rem}
+.detail-body {padding: 0 1.15rem 1.05rem}
+.detail-body p {margin: .55rem 0}
+.table-wrap {overflow-x: auto}
+table {border-collapse: collapse; width: 100%; font-variant-numeric: tabular-nums}
+td,th {padding: .57rem .65rem; text-align: right; border-bottom: 1px solid #dce5df}
+td:first-child,th:first-child {text-align: left}
+thead {background: #f0f5f1}
+.muted {font-size: .9rem}
+.charts {display: grid; gap: 1rem; grid-template-columns: 1fr 1fr}
+.chart {min-width: 0; margin: 0; padding: 1.1rem 1.2rem}
+.chart svg {display: block; width: 100%; height: auto; margin-block: .6rem .25rem}
+.chart svg text {fill: #526763; font: 13px Consolas, monospace}
+.chart-value {font-size: .88rem; color: var(--muted); min-height: 1.45rem}
+.findings {padding: 1rem 1.2rem}
+.findings p {margin: .55rem 0; line-height: 1.7}
+.findings button {font-size: .9rem; margin: .35rem .55rem .1rem 0; color: var(--pine)}
+.notice {border-left: 3px solid #975b2f; padding: .65rem .88rem; background: #fff3e1; margin-bottom: 1rem; white-space: pre-line}
+.no-match,.empty-start {padding: 2rem; color: var(--muted)}
+.no-match p,.empty-start p {margin-block: .75rem 1.1rem}
+.empty-start {max-width: 54rem; margin: 1rem auto}
+.primary {background: var(--pine); color: white}
+.sr-only {position: absolute; width: 1px; height: 1px; clip-path: inset(50%); overflow: hidden}
+@media(max-width: 1080px) {
+  .sample-layout {grid-template-columns: 12.3rem minmax(0,1fr); gap: .7rem}
+  .passages {gap: .45rem; padding-inline: .7rem}
+  .passage {padding-inline: .55rem}
+}
+@media(max-width: 850px) {
+  .sample-layout {grid-template-columns: 1fr}
+  .index-tools {display: flex; align-items: center; flex-wrap: wrap}
+  .samples {max-height: 6.8rem; display: grid; grid-template-columns: repeat(3,minmax(0,1fr))}
+  .sample-button {min-width: 0}
+}
+@media(max-width: 650px) {
+  .mast-inner {gap: .7rem; flex-wrap: wrap; padding-block: .6rem .25rem}
+  .brand {font-size: 1.55rem}
+  nav {order: 3; width: 100%; gap: 1.5rem} nav a {padding-block: .4rem}
+  .frame {padding-block: 1.15rem 2rem}
+  .kpis {grid-template-columns: 1fr 1fr}
+  .kpi {padding: .7rem .78rem}
+  .index-tools .searchbox {flex: 1}
+  .samples {grid-template-columns: repeat(2,minmax(0,1fr))}
+  .passages,.charts {grid-template-columns: 1fr}
+  .passage {min-height: auto; padding: .72rem .8rem}
+  .reading-head,.diff-controls {padding-inline: .8rem}
+  .pager button {padding-inline: .55rem}
+}
