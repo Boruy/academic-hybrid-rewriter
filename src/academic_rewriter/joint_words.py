@@ -1,6 +1,7 @@
-"""Single-word supervision and decoding for the joint six-layer model."""
+"""Word supervision and source-position guidance for the joint six-layer model."""
 from collections import defaultdict
 from dataclasses import dataclass
+from difflib import SequenceMatcher
 
 import torch
 from torch.nn import functional as F
@@ -38,6 +39,15 @@ def align_spans(offsets, starts, ends):
     return aligned, complete
 
 
+def changed_source_spans(source, reference):
+    """Find source spans replaced or deleted in an aligned revision."""
+    source_spans = list(_TOKEN.finditer(source))
+    aligner = SequenceMatcher(None, [span.group() for span in source_spans],
+                              [span.group() for span in _TOKEN.finditer(reference)], autojunk=False)
+    return {span.span() for kind, start, stop, _, _ in aligner.get_opcodes()
+            if kind in ('replace', 'delete') for span in source_spans[start:stop]}
+
+
 class WordTask:
     def __init__(self, model, tokenizer, device, max_length):
         if model.word_head is None:
@@ -48,6 +58,7 @@ class WordTask:
         self.max_length = min(max_length, model.config.max_positions)
         self.four_stage = model.config.prediction_stages == 4
         self.labels = model.config.word_labels
+        self.edit_label = len(self.labels) - 1 if model.config.contextual_edits else None
         self.label_ids = {word: index for index, word in enumerate(self.labels)}
         self.choices = {
             word: (0, *(self.label_ids[target] for target in replacements))
@@ -122,17 +133,21 @@ class WordTask:
         labels = torch.tensor([example.label for example in examples], device=self.device)
         return [F.cross_entropy(logits, labels) for logits in self._logits(examples)]
 
-    def _candidates(self, texts):
+    def _replacement_choices(self, word):
+        if _WORD.fullmatch(word) and (word.islower() or word.istitle()):
+            return self.choices.get(word.lower(), (0,))
+        return (0,)
+
+    def _candidates(self, texts, *, include_unlisted=False):
         for index, text in enumerate(texts):
             for span in _TOKEN.finditer(text):
-                source = span.group()
-                if (_WORD.fullmatch(source) and source.lower() in self.choices
-                        and (source.islower() or source.istitle())):
+                if include_unlisted or self._replacement_choices(span.group()) != (0,):
                     yield index, span
 
     def _source_predictions(self, texts, encoding, *, shallow=False):
         offsets = encoding['offset_mapping']
-        candidates = list(self._candidates(texts))
+        contextual = self.edit_label is not None and not shallow
+        candidates = list(self._candidates(texts, include_unlisted=contextual))
         if not candidates:
             return [], [], None
         rows = torch.tensor([index for index, _ in candidates], dtype=torch.long)
@@ -144,7 +159,10 @@ class WordTask:
             candidates = [candidates[index] for index in complete.nonzero().flatten().tolist()]
             if not candidates:
                 return [], [], None
-            allowed = self._allowed([self.choices[span.group().lower()] for _, span in candidates])
+            choices = [self._replacement_choices(span.group()) for _, span in candidates]
+            if contextual:
+                choices = [(*options, self.edit_label) for options in choices]
+            allowed = self._allowed(choices)
             logits, guides = self.model.source_word_stages(
                 encoding['input_ids'].to(self.device), encoding['attention_mask'].to(self.device),
                 rows[complete].to(self.device), aligned[complete].to(self.device), allowed, text_mask,
@@ -161,6 +179,23 @@ class WordTask:
     def guidance(self, texts, encoding):
         """Build source-only boundary guides and aligned candidate vectors for the saved layout."""
         return self._source_predictions(texts, encoding)[2]
+
+    def supervised_guidance(self, rows, encoding):
+        """Build the same guides as inference and supervise edit positions on real pairs."""
+        candidates, outputs, guides = self._source_predictions([row['source'] for row in rows], encoding)
+        edits_by_row = {index: changed_source_spans(row['source'], row['target'])
+                        for index, row in enumerate(rows) if not row.get('synthetic')}
+        labeled = [(index, span.span() in edits_by_row[row])
+                   for index, (row, span) in enumerate(candidates) if row in edits_by_row]
+        if not labeled:
+            return guides, None
+        indices, edits = zip(*labeled)
+        selected = torch.tensor(indices, device=self.device)
+        logits = torch.stack([stage.index_select(0, selected) for stage in outputs])
+        # Any lexical replacement or the generic EDIT label counts as an edit.
+        edit_logits = logits[..., 1:].logsumexp(-1) - logits[..., 0]
+        targets = torch.tensor(edits, device=self.device, dtype=edit_logits.dtype)
+        return guides, F.binary_cross_entropy_with_logits(edit_logits, targets.expand_as(edit_logits))
 
     @torch.no_grad()
     def rewrite_many(self, texts):

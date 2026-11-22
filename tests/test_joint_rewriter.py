@@ -8,7 +8,7 @@ import unittest
 
 import torch
 
-from academic_rewriter.joint_words import WordTask, word_replacements
+from academic_rewriter.joint_words import WordTask, changed_source_spans, word_replacements
 from academic_rewriter.rewrite import rewrite_neural
 from academic_rewriter.run import batch, build_tokenizer, parser, read_rows, run
 from academic_rewriter.six_layer import NEURAL_DEPTHS, SixLayerConfig, SixLayerRewriter
@@ -43,6 +43,7 @@ class JointRewriterTests(unittest.TestCase):
                     self.assertEqual(model.prediction_stage_layers, layers)
                     self.assertEqual(model.final_fusion is not None, fused)
                     self.assertFalse(model.config.candidate_guidance)
+                    self.assertFalse(model.config.contextual_edits)
                     self.assertNotIn('word_candidate_embeddings', model.state_dict())
                     self.assertIsNone(model.copy_head)
 
@@ -167,41 +168,74 @@ class JointRewriterTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, 'only the fused final rewrite'):
                 model.generate(tokens, mask, depth='medium', max_new_tokens=1)
 
+    def test_edit_supervision_covers_unlisted_words_without_leaking_references(self):
+        real = dict(source='We feed features in LayoutLM.', target='We feed features into LayoutLM.')
+        synthetic = dict(source='We call them as tails.', target='We call them tails.', synthetic=True)
+        changed = changed_source_spans(real['source'], real['target'])
+        self.assertEqual({real['source'][start:stop] for start, stop in changed}, {'in'})
+        self.assertEqual(changed_source_spans('Each test is useful.', 'Each test is very useful.'), set())
+        with tempfile.TemporaryDirectory() as temporary:
+            tokenizer = build_tokenizer([real, synthetic], Path(temporary))
+            model = SixLayerRewriter(SixLayerConfig(
+                vocab_size=len(tokenizer), d_model=16, attention_heads=2, ffn_dim=32, dropout=0., depth='joint',
+                prediction_stages=4, fuse_stage_outputs=True, candidate_guidance=True, source_copy=True,
+                contextual_edits=True, word_replacements=word_replacements(WORDS))).eval()
+            task = WordTask(model, tokenizer, 'cpu', 32)
+            sources = [real['source'], synthetic['source']]
+            encoding = tokenizer(sources, return_offsets_mapping=True, return_tensors='pt', padding=True)
+            guides, loss = task.supervised_guidance([real, synthetic], encoding)
+            torch.testing.assert_close(guides, task.guidance(sources, encoding))
+            in_position = real['source'].index(' in ') + 1
+            (token_index,) = (encoding['offset_mapping'][0, :, 0] == in_position).nonzero().flatten()
+            self.assertTrue((guides[0, token_index, :, -1] > 0).all())
+            self.assertEqual(guides[..., 1:-1].count_nonzero().item(), 0)
+            other_guides, other_loss = task.supervised_guidance([real, dict(synthetic, target='')], encoding)
+            torch.testing.assert_close(other_guides, guides)
+            torch.testing.assert_close(other_loss, loss)
+            self.assertIsNone(task.supervised_guidance([dict(real, synthetic=True), synthetic], encoding)[1])
+            gradient, = torch.autograd.grad(loss, (model.word_head[-1].weight,))
+            self.assertTrue(torch.isfinite(gradient).all())
+            self.assertGreater(gradient[task.edit_label].abs().sum().item(), 0.)
+
     def test_source_copy_is_causal_and_matches_cached_decoding(self):
         torch.manual_seed(8)
         model = SixLayerRewriter(SixLayerConfig(
             vocab_size=24, d_model=16, attention_heads=2, ffn_dim=32, dropout=0., depth='joint',
-            prediction_stages=4, fuse_stage_outputs=True, source_copy=True,
+            prediction_stages=4, fuse_stage_outputs=True, source_copy=True, contextual_edits=True,
             word_replacements=word_replacements(WORDS))).eval()
         tokens = torch.tensor([[1, 4, 4, 7, 2, 1, 9, 2], [1, 2, 1, 8, 2, 0, 0, 0]])
         mask = tokens.ne(0)
         segments = torch.tensor([[0, 0, 0, 0, 0, 1, 1, 1], [0, 0, 1, 1, 1, 0, 0, 0]])
+        guidance = torch.zeros((*tokens.shape, 3, 2))
+        guidance[0, 1, -1, :] = 1.
+        guidance[0, 3, -1, 0] = 1.  # Edge enhancement alone leaves the copy bias unchanged.
         with torch.no_grad():
-            expected = model.sequence_logits(tokens, mask, segments)
+            expected = model.sequence_logits(tokens, mask, segments, word_guidance=guidance)
             states = [None] * 6
             for index in range(tokens.size(1)):
                 valid = mask[:, index]
                 actual, states = model.step(tokens[:, index], torch.full((2,), index),
-                                            segments[:, index], valid, states)
+                                            segments[:, index], valid, states, word_guidance=guidance[:, index])
                 torch.testing.assert_close(actual[valid], expected[valid, index], atol=4e-6, rtol=4e-5)
 
-            # Make the vocabulary and attention uniform so copied mass can be checked directly.
+            # Isolate E3 as the only difference between eligible copy positions.
             model.token_embedding.weight.zero_()
             model.copy_head.query.weight.zero_()
             model.copy_head.gate.weight.zero_()
             gate_bias = torch.tensor(12.)
             model.copy_head.gate.bias.fill_(gate_bias.item())
-            probabilities = model.sequence_logits(tokens, mask, segments).exp()
+            probabilities = model.sequence_logits(tokens, mask, segments, word_guidance=guidance).exp()
         vocab_mass = (-gate_bias).sigmoid().item() / model.config.vocab_size
         copy_mass = gate_bias.sigmoid().item()
         # Only the first occurrence of token 4 has been seen at position 1.
         early = torch.full_like(probabilities[0, 1], vocab_mass)
         early[4] += copy_mass
         torch.testing.assert_close(probabilities[0, 1], early)
-        # During the rewrite both source occurrences of token 4 can be copied.
+        # E3 downweights the first occurrence of token 4 during the rewrite.
+        edit_weight = torch.exp(torch.tensor(-1.)).item()
         later = torch.full_like(probabilities[0, 6], vocab_mass)
-        later[4] += copy_mass * 2 / 3
-        later[7] += copy_mass / 3
+        later[4] += copy_mass * (1 + edit_weight) / (2 + edit_weight)
+        later[7] += copy_mass / (2 + edit_weight)
         torch.testing.assert_close(probabilities[0, 6], later)
         torch.testing.assert_close(probabilities[1, 3], torch.full_like(later, 1 / model.config.vocab_size))
 
@@ -222,17 +256,18 @@ class JointRewriterTests(unittest.TestCase):
                 write_rows(root/(split+'.jsonl'), rows)
             training = parser().parse_args(['--tiny', '--device', 'cpu', '--data', str(root),
                                             '--word-data', str(words), '--output', str(output), '--steps', '1',
-                                            '--source-copy', '--sampling', 'balanced',
+                                            '--source-copy', '--contextual-edits', '--sampling', 'balanced',
                                             '--batch-size', '2', '--max-length', '24', '--checkpoint-selection', 'final'])
             flags = ['--checkpoint', str(output), '--data', str(root), '--device', 'cpu',
                      '--split', 'test', '--max-new-tokens', '8', '--limit', '0']
             with contextlib.redirect_stdout(io.StringIO()) as console:
                 trained = run(training)
                 metrics = evaluate_checkpoint(evaluation_parser().parse_args(flags + ['--word-test', str(reviewed)]))
+                without_guidance = evaluate_checkpoint(evaluation_parser().parse_args(flags + ['--no-word-guidance']))
                 with self.assertRaisesRegex(ValueError, 'separate, nonsynthetic'):
                     evaluate_checkpoint(evaluation_parser().parse_args(flags + ['--word-test', str(words)]))
             self.assertRegex(console.getvalue(), r'(?m)^\[train 1/1\] loss=\S+ ma20=\S+ '
-                                                 r'p3_ce=\S+ p4_ce=\S+ word_ce=\S+ lr=\S+ elapsed=\S+$')
+                                                 r'p3_ce=\S+ p4_ce=\S+ word_ce=\S+ edit_ce=\S+ lr=\S+ elapsed=\S+$')
             self.assertFalse(trained['test_set_used'])
             self.assertEqual(trained['rewrite_modes'], ['final'])
             self.assertTrue(trained['fuse_stage_outputs'])
@@ -240,6 +275,10 @@ class JointRewriterTests(unittest.TestCase):
             self.assertTrue(metrics['candidate_guidance'])
             self.assertTrue(trained['source_copy'])
             self.assertTrue(metrics['source_copy'])
+            self.assertTrue(trained['contextual_edits'])
+            self.assertTrue(metrics['word_guidance_enabled'])
+            self.assertFalse(without_guidance['word_guidance_enabled'])
+            self.assertTrue((output/'evaluation'/'test-8-no-word-guidance'/'predictions.csv').is_file())
             self.assertEqual(trained['real_examples_seen'], 1)
             self.assertEqual(trained['synthetic_examples_seen'], 1)
             self.assertEqual(trained['validation_cross_entropy'], trained['validation_cross_entropy_by_depth']['deep'])
@@ -249,7 +288,7 @@ class JointRewriterTests(unittest.TestCase):
             word_losses = [record[f'p{index}_word_cross_entropy'] for index in (1, 2, 3)]
             self.assertAlmostEqual(record['word_cross_entropy'], sum(word_losses)/3, places=5)
             expected = .5*(record['medium_cross_entropy'] + record['deep_cross_entropy'])
-            expected += training.word_loss_weight*record['word_cross_entropy']
+            expected += training.word_loss_weight*(record['word_cross_entropy'] + record['source_edit_cross_entropy'])
             self.assertAlmostEqual(record['train_loss'], expected, places=5)
             self.assertTrue(metrics['test_set_used'])
             self.assertNotIn('modes', metrics)

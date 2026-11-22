@@ -31,6 +31,8 @@ class GenerationDiagnosticsTests(unittest.TestCase):
         self.assertEqual(evaluation_output_path(args), Path('example/evaluation/test-192'))
         args.max_new_tokens = 48
         self.assertEqual(evaluation_output_path(args), Path('example/evaluation/test-48'))
+        args.no_word_guidance = True
+        self.assertEqual(evaluation_output_path(args), Path('example/evaluation/test-48-no-word-guidance'))
         args.output = 'custom/results'
         self.assertEqual(evaluation_output_path(args), Path('custom/results'))
 

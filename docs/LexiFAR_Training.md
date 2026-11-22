@@ -21,6 +21,8 @@ Sentence training uses `[BOS] source [EOS] [BOS] target [EOS]`. Only target toke
 
 With `source_copy` enabled, the fused prediction learns a per-token gate between the vocabulary distribution and attention over preceding or current source tokens. The copy distribution sums mass at repeated token IDs and excludes sentence markers, padding and target tokens. P4 minimizes the negative log probability of the reference token under the mixture.
 
+`contextual_edits` adds a generic edit decision to the shared word head so it can score spans throughout the source. Training aligns each real source and reference at word and punctuation boundaries. Replaced or deleted spans supervise `EDIT` and matched spans supervise `KEEP`. These automatic labels use the frozen real training pairs. The guides use the source at training and inference. P4 subtracts the unexpanded E3 edit weight from each source position's copy attention logit. This keeps the copy bias local to the predicted word positions.
+
 Generation consumes the source prefix and greedily predicts target tokens. LSTM and Mamba states, the Transformers' past normalized states and the copy head's source positions are cached. The returned sequence begins with an initial BOS marker that is excluded from generated-token counts.
 
 The Mamba module is the plain-PyTorch Mamba-1 reference recurrence, not an optimized official CUDA kernel. No speed or numerical-parity claim is made. Transformer attention remains quadratic.
@@ -50,19 +52,19 @@ The launcher reads `configs/six_layer_experiment.json` and checks the generator 
 
 The default uses balanced sentence batches of eight real revisions and eight synthetic pairs and samples a separate batch from the word corpus. Within each sentence batch, examples are sampled without replacement from their respective groups. Across updates, they can recur. An odd sentence batch allocates the extra pair to real revisions. `result.json` records the number of real and synthetic pairs seen across all updates.
 
-Each update prints the step, total loss, 20-step moving average, auxiliary P3 cross-entropy, fused P4 cross-entropy, mean word cross-entropy, learning rate and elapsed time. `--log-every 10` changes the terminal interval to ten updates. The trainer records every step in `training_progress.jsonl` and reports when validation starts and finishes.
+Each update prints the step, total loss, 20-step moving average, auxiliary P3 cross-entropy, fused P4 cross-entropy, mean word cross-entropy, contextual edit loss when supervised, learning rate and elapsed time. `--log-every 10` changes the terminal interval to ten updates. The trainer records every step in `training_progress.jsonl` and reports when validation starts and finishes.
 
 Validation runs every 250 updates and monitors the fused final token cross-entropy. The best-validation checkpoint includes step zero, and early stopping follows four unimproved checks. The checkpoint directory stores `weights.pt`, the tokenizer and a config with the saved stage layout, fusion and candidate guidance settings. The training and validation logs record auxiliary losses where labels are available.
 
-The default config passes `--overwrite` and reruns training in `runs/six_layer_joint_v5_copy`. Use `--output` to choose the directory to write. The trainer publishes `result.json` after it saves the weights and logs, marking the run ready for evaluation.
+The default config passes `--overwrite` and reruns training in `runs/six_layer_joint_v6_edits`. Use `--output` to choose the directory to write. The trainer publishes `result.json` after it saves the weights and logs, marking the run ready for evaluation.
 
-`--init-checkpoint` on `academic_rewriter.run` continues the saved architecture and tokenizer with a fresh optimizer and writes to a different directory. A joint continuation requires the saved word replacement vocabulary and source-copy setting. Start a fresh joint run with `--source-copy` to learn the copy head. Legacy checkpoints load the vocabulary-only output head.
+`--init-checkpoint` on `academic_rewriter.run` continues the saved architecture and tokenizer with a fresh optimizer and writes to a different directory. A joint continuation uses the saved word replacement vocabulary, source-copy setting and contextual-edit setting. Start a fresh joint run with `--source-copy --contextual-edits` to train the expanded word head and the guided copy path together.
 
 ## Evaluate the entire split
 
 ```powershell
-.\.venv\Scripts\python.exe -m academic_rewriter.test --checkpoint runs/six_layer_joint_v5_copy --split validation --batch-size 8 --max-new-tokens 192 --limit 0
-.\.venv\Scripts\python.exe -m academic_rewriter.test --checkpoint runs/six_layer_joint_v5_copy --split test --batch-size 8 --max-new-tokens 192 --limit 0
+.\.venv\Scripts\python.exe -m academic_rewriter.test --checkpoint runs/six_layer_joint_v6_edits --split validation --batch-size 8 --max-new-tokens 192 --limit 0
+.\.venv\Scripts\python.exe -m academic_rewriter.test --checkpoint runs/six_layer_joint_v6_edits --split test --batch-size 8 --max-new-tokens 192 --limit 0
 ```
 
 The default data directory is `data/academic-pairs-v1`. A zero limit evaluates every row: 98 validation cases or 87 test cases. Only completed checkpoints with `result.json`, `six_layer_config.json`, `tokenizer/` and `weights.pt` can be evaluated.
@@ -73,7 +75,7 @@ Start the qualitative review with the LayoutLM preposition edit and the corpus d
 
 ```powershell
 $ids = '00a677997fbda9ac', '4766dceaeff49be0'
-Get-Content runs/six_layer_joint_v5_copy/evaluation/validation-192/predictions.jsonl -Encoding UTF8 |
+Get-Content runs/six_layer_joint_v6_edits/evaluation/validation-192/predictions.jsonl -Encoding UTF8 |
     ForEach-Object { ConvertFrom-Json -InputObject $_ } |
     Where-Object { $_.id -in $ids } |
     Format-List source,reference,prediction
@@ -81,11 +83,17 @@ Get-Content runs/six_layer_joint_v5_copy/evaluation/validation-192/predictions.j
 
 Repeated evaluation replaces files in its selected output directory. Pass `--output runs/evaluation_v2` to preserve an earlier evaluation. Checkpoints and predictions are local runtime artifacts and are ignored by Git.
 
+To inspect the contribution of E1–E3 during generation, decode the same checkpoint with `--no-word-guidance`. Compare the two `predictions.csv` files by ID. Check whether the required edit was made and whether nearby terms, numbers and clauses were preserved. The second run writes to `evaluation/validation-192-no-word-guidance/` by default.
+
+```powershell
+.\.venv\Scripts\python.exe -m academic_rewriter.test --checkpoint runs/six_layer_joint_v6_edits --split validation --limit 0 --no-word-guidance
+```
+
 To measure the effect of the replacement vectors, train a position-only checkpoint with the same data and seed, then evaluate it with the same decode settings. `metrics.json` records `candidate_guidance`.
 
 ```powershell
-.\.venv\Scripts\python.exe scripts/train_six_layer.py --word-guidance position --output runs/six_layer_joint_v5_copy_position
-.\.venv\Scripts\python.exe -m academic_rewriter.test --checkpoint runs/six_layer_joint_v5_copy_position --split test --limit 0
+.\.venv\Scripts\python.exe scripts/train_six_layer.py --word-guidance position --output runs/six_layer_joint_v6_edits_position
+.\.venv\Scripts\python.exe -m academic_rewriter.test --checkpoint runs/six_layer_joint_v6_edits_position --split test --limit 0
 ```
 
 ## Data reproduction and checks
@@ -98,7 +106,7 @@ The existing data and generator hashes are frozen. The following generator comma
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts/verify_integrity.ps1
 ```
 
-For a changed corpus, use a new configuration and output directory that point to its new manifest. Tests cover causal isolation, source copy probabilities, candidate alignment and gradients, cached/full-logit agreement, padding, balanced sampling, target-only loss, checkpoint reload and continuation, full prediction exports and synthetic-data isolation. These commands remain pending until the user runs them.
+For a changed corpus, use a new configuration and output directory that point to its new manifest. Tests cover causal isolation, source copy probabilities, edit alignment and gradients, cached/full-logit agreement, padding, balanced sampling, target-only loss, checkpoint reload and continuation, full prediction exports and synthetic-data isolation. These commands remain pending until the user runs them.
 
 ## Evidence boundaries
 

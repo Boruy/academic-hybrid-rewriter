@@ -15,16 +15,16 @@ LexiFAR trains all four stages jointly. The first three predictions provide word
 
 The purple paths carry F1–F4 into the final vocabulary head at P4. The right inset shows how each source word provides a location weight and a probability-weighted replacement vector for the next stage. Double-headed arrows mark cross-entropy (CE) supervision during joint training. [Open the editable English diagram](figures/LexiFAR_Architecture.svg).
 
-Each stage has a `MidFPred` projection with two linear layers and GELU. The shared single-word edit module takes the place of CDEA. At P1, P2 and P3 it reads the final subword of the focus word and the sentence-end representation. It predicts probabilities for `KEEP` and the word's replacements recorded in the training data. The guide to the next stage has two components.
+Each stage has a `MidFPred` projection with two linear layers and GELU. The shared word edit module takes the place of CDEA. At P1, P2 and P3 it reads the final subword of the source span and the sentence-end representation. It predicts `KEEP` and the word's available replacements. With contextual edits enabled, it also predicts a generic `EDIT` class for aligned spans throughout the sentence, including words outside the replacement list. The guide to the next stage has two components.
 
 - **Location.** Map `1 − P(KEEP)` to the source subwords and use one-dimensional dilation minus erosion to emphasize the local boundaries. The resulting weight scales a learned residual on the source features.
-- **Replacement.** Multiply each allowed replacement's learned vector by its probability and sum the vectors. Add this residual at the source word's aligned subwords. Only replacement labels have vectors, so `KEEP` contributes zero. The vectors start at zero and are learned in the joint run.
+- **Replacement.** Multiply each allowed replacement's learned vector by its probability and sum the vectors. Add this residual at the source word's aligned subwords. The `KEEP` and generic `EDIT` classes contribute zero to this sum. The vectors start at zero and are learned in the joint run.
 
 For example, an edit to `get access` can pass a vector weighted toward `gain`, while an edit to `get estimates` can pass a vector weighted toward `obtain`. Both components use the input sentence during training and cached decoding. The original source tokens remain in the prefix.
 
-At every token position, the model concatenates the four projected features F1–F4. A learned `4d → d` projection produces the fused feature for the vocabulary head. The same fusion runs in the training forward pass and cached generation. The default experiment uses these features to attend over eligible source tokens and learn how much probability to assign to copying them at each step. P4 combines that probability with the vocabulary distribution in the figure.
+At every token position, the model concatenates the four projected features F1–F4. A learned `4d → d` projection produces the fused feature for the vocabulary head. The same fusion runs in the training forward pass and cached generation. P4 mixes vocabulary and source-copy probabilities. With contextual edits enabled, it subtracts the unexpanded E3 edit weight from the copy attention logit at each source position, favoring retention of positions with smaller edit weights. Boundary enhancement still supplies the residual guide between stages.
 
-Each optimizer update uses a batch of [sentence pairs](../data/academic-pairs-v1/README.md) and a batch of [word pairs](../data/word-formality-v1/README.md). The default loss is `0.5 × CE(P3 auxiliary sentence) + 0.5 × CE(P4 final sentence) + 0.25 × mean(CE(P1 word), CE(P2 word), CE(P3 word))`. The word objectives supervise the labeled replacement or retain decision. The logs record the auxiliary and final losses. Checkpoint selection uses the fused final cross-entropy on the real validation split.
+Each optimizer update uses a batch of [sentence pairs](../data/academic-pairs-v1/README.md) and a batch of [word pairs](../data/word-formality-v1/README.md). The default loss is `0.5 × CE(P3 sentence) + 0.5 × CE(P4 sentence) + 0.25 × word replacement CE + 0.25 × source-edit BCE`. Both word losses average P1, P2 and P3. Within the real training pairs, exact aligned source spans supply `KEEP` labels and replaced or deleted spans supply edit labels. Pure insertions receive sentence-level supervision. References supply these loss labels and E1–E3 are computed from the source. Checkpoint selection uses the fused final cross-entropy on the real validation split.
 
 ## Train once and generate the final rewrite
 
@@ -32,13 +32,13 @@ Run from the repository root in PowerShell. The default training config replaces
 
 ```powershell
 $python = '.\.venv\Scripts\python.exe'
-$checkpoint = 'runs/six_layer_joint_v5_copy'
+$checkpoint = 'runs/six_layer_joint_v6_edits'
 $sentence = 'The proposed method gets better results than the baseline.'
 & $python scripts/train_six_layer.py --output $checkpoint
 & $python -m academic_rewriter.rewrite --checkpoint $checkpoint --text $sentence
 ```
 
-Joint checkpoints record the stage layout, feature fusion, candidate guidance, replacement vocabulary and source-copy setting in `six_layer_config.json`. Earlier joint checkpoints without a candidate setting use position guides. Checkpoints saved before source copying use the vocabulary head shown in the figure. The single-sentence command returns the source if the rewrite is empty, lacks an end token or changes the numeric strings.
+Joint checkpoints record the stage layout, feature fusion, replacement vocabulary, candidate guidance, source copying and contextual edits in `six_layer_config.json`. Earlier checkpoints load their saved output and guidance settings. The single-sentence command returns the source if the rewrite is empty, lacks an end token or changes the numeric strings.
 
 ## Test the fused rewrite
 

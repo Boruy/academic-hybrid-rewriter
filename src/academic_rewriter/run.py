@@ -36,7 +36,7 @@ def build_subword_tokenizer(rows,out):
     result=PreTrainedTokenizerFast(tokenizer_object=tok,pad_token='[PAD]',bos_token='[BOS]',eos_token='[EOS]',unk_token='[UNK]')
     result.save_pretrained(out); return result
 
-def batch(rows,tokenizer,device,max_length,word_task=None):
+def _prepare_batch(rows, tokenizer, device, max_length, word_task=None, *, supervise_edits=False):
     sources = [r['source'] for r in rows]
     x=tokenizer(sources,padding=True,truncation=True,max_length=max_length,return_tensors='pt',
                 return_offsets_mapping=word_task is not None)
@@ -44,9 +44,16 @@ def batch(rows,tokenizer,device,max_length,word_task=None):
     y[y==tokenizer.pad_token_id]=-100
     inputs = {'input_ids':x['input_ids'].to(device),'attention_mask':x['attention_mask'].to(device),
               'labels':y.to(device)}
-    if word_task:
+    edit_loss = None
+    if word_task and supervise_edits and word_task.edit_label is not None:
+        inputs['word_guidance'], edit_loss = word_task.supervised_guidance(rows, x)
+    elif word_task:
         inputs['word_guidance'] = word_task.guidance(sources, x)
-    return inputs
+    return inputs, edit_loss
+
+
+def batch(rows, tokenizer, device, max_length, word_task=None):
+    return _prepare_batch(rows, tokenizer, device, max_length, word_task)[0]
 
 def run(args):
     if args.lr is None:
@@ -105,9 +112,13 @@ def run(args):
             raise ValueError('Continuation requires the saved word guidance')
         if args.source_copy is not None and args.source_copy != six_config.source_copy:
             raise ValueError('Continuation requires the saved source-copy setting')
+        if args.contextual_edits is not None and args.contextual_edits != six_config.contextual_edits:
+            raise ValueError('Continuation requires the saved contextual-edit setting')
     depth = six_config.depth if parent else args.depth or 'joint'
     if args.source_copy and depth != 'joint':
         raise ValueError('Source copying requires joint training')
+    if not parent and args.contextual_edits and not args.source_copy:
+        raise ValueError('Contextual edit guidance requires --source-copy')
     word_rows = []
     word_hash = None
     replacements = {}
@@ -131,7 +142,7 @@ def run(args):
             eos_token_id=tokenizer.eos_token_id,depth=depth,word_replacements=replacements,
             prediction_stages=4 if depth == 'joint' else 3, fuse_stage_outputs=depth == 'joint',
             candidate_guidance=depth == 'joint' and args.word_guidance != 'position',
-            source_copy=bool(args.source_copy))
+            source_copy=bool(args.source_copy), contextual_edits=bool(args.contextual_edits))
     tokenizer.padding_side='right'; tokenizer.save_pretrained(out/'tokenizer')
     six_config.save(out/'six_layer_config.json');model=SixLayerRewriter(six_config)
     if parent:
@@ -150,7 +161,9 @@ def run(args):
     optimizer=torch.optim.AdamW([p for p in model.parameters() if p.requires_grad],lr=args.lr)
     scheduler=torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer,mode='min',factor=args.lr_drop_factor,patience=args.lr_patience,threshold=.001,threshold_mode='rel',min_lr=args.min_lr) if args.lr_scheduler=='plateau' else None
 
-    def train_objective(inputs, words):
+    def train_objective(rows, words):
+        inputs, edit_loss = _prepare_batch(rows, tokenizer, device, args.max_length, word_task,
+                                          supervise_edits=True)
         sentence = model.sequence_losses(**inputs)
         loss = sum(sentence.values()) / len(sentence)
         terms = {f'{name}_cross_entropy': value for name, value in sentence.items()}
@@ -161,13 +174,15 @@ def run(args):
             terms['word_cross_entropy'] = word_loss
             terms.update({f'p{index}_word_cross_entropy': value
                           for index, value in enumerate(word_stages, start=1)})
+        if edit_loss is not None:
+            loss = loss + args.word_loss_weight * edit_loss
+            terms['source_edit_cross_entropy'] = edit_loss
         return loss, terms
 
     @torch.no_grad()
     def fixed_loss():
         model.eval()
-        fixed = batch(fixed_rows, tokenizer, device, args.max_length, word_task)
-        return train_objective(fixed, fixed_words)[0].item()
+        return train_objective(fixed_rows, fixed_words)[0].item()
     @torch.no_grad()
     def validation_losses():
         model.eval(); denominator=0
@@ -232,8 +247,7 @@ def run(args):
         real_examples_seen += sum(not row.get('synthetic') for row in chosen)
         words = word_rng.sample(word_examples, min(args.batch_size, len(word_examples)))
         optimizer.zero_grad(set_to_none=True)
-        b=batch(chosen,tokenizer,device,args.max_length,word_task)
-        loss, terms = train_objective(b, words)
+        loss, terms = train_objective(chosen, words)
         if not torch.isfinite(loss): raise RuntimeError('Non-finite loss')
         loss.backward(); grad_norm=torch.nn.utils.clip_grad_norm_(model.parameters(),1.,error_if_nonfinite=True)
         learning_rate=optimizer.param_groups[0]['lr']; optimizer.step()
@@ -252,6 +266,8 @@ def run(args):
                 progress += (f" p3_ce={entry['medium_cross_entropy']:.4f}"
                              f" p4_ce={entry['deep_cross_entropy']:.4f}"
                              f" word_ce={entry['word_cross_entropy']:.4f}")
+            if 'source_edit_cross_entropy' in entry:
+                progress += f" edit_ce={entry['source_edit_cross_entropy']:.4f}"
             print(f'{progress} lr={learning_rate:.2e} elapsed={time.perf_counter() - start:.1f}s', flush=True)
         if args.eval_every and (step+1)%args.eval_every==0: record_validation(step+1)
         if args.early_stopping_patience and unimproved>=args.early_stopping_patience:
@@ -283,7 +299,8 @@ def run(args):
         active_layer_layout=list(model.layer_layout[:model.active_layer_count]),
         conditional_generation='causal source prefix with source copying and target-only token loss'
         if six_config.source_copy else 'causal source prefix; target-only token loss',
-        source_copy=six_config.source_copy, real_examples_seen=real_examples_seen,
+        source_copy=six_config.source_copy, contextual_edits=six_config.contextual_edits,
+        real_examples_seen=real_examples_seen,
         synthetic_examples_seen=examples_seen-real_examples_seen,
         experiment_type='pipeline smoke test, not a quality comparison' if args.tiny else 'six-layer synthetic-augmented exploratory training',
         cross_entropy_comparability='Compare CE only when tokenization and evaluation protocol match.')
@@ -301,6 +318,8 @@ def run(args):
                                          if fused else {'shallow': args.word_loss_weight, 'medium': .5, 'deep': .5}),
                       checkpoint_selection_metric=('Fused final validation cross-entropy' if fused else
                                                    'Mean of medium and deep validation cross-entropies'))
+        if six_config.contextual_edits:
+            result['objective_weights']['source_edit'] = args.word_loss_weight
     manifest=Path(args.data)/'manifest.json'
     if manifest.exists():result['training_data_manifest_sha256']=file_hash(manifest)
     result['validation_examples_max_new_tokens']=args.max_length
@@ -338,6 +357,8 @@ def parser():
                    help='Fresh joint runs default to candidates; continuations use the saved setting')
     p.add_argument('--source-copy', action=argparse.BooleanOptionalAction,
                    help='Mix source copying into P4. Continuations use the saved setting.')
+    p.add_argument('--contextual-edits', action=argparse.BooleanOptionalAction,
+                   help='Learn edit positions from real sentence pairs and guide source copying.')
     p.add_argument('--d-model',type=int,default=192,help='Six-layer hidden width')
     p.add_argument('--attention-heads',type=int,default=4,help='Six-layer attention head count')
     p.add_argument('--ffn-dim',type=int,default=768,help='Six-layer Transformer feed-forward width')

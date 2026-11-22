@@ -44,6 +44,7 @@ def main():
         settings['depth'] = args.depth
         if args.depth != 'joint':
             settings.pop('source_copy', None)
+            settings.pop('contextual_edits', None)
     if args.word_guidance:
         settings['word_guidance'] = args.word_guidance
     if args.log_every is not None:

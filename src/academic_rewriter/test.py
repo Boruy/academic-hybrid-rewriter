@@ -23,6 +23,7 @@ def parser():
     p.add_argument('--batch-size', type=int, default=8)
     p.add_argument('--limit', type=int, default=0, help='0 evaluates the entire split')
     p.add_argument('--word-test', help='Optional independently reviewed word pairs for the joint checkpoint')
+    p.add_argument('--no-word-guidance', action='store_true', help='Disable word guidance for neural sentence rewrites')
     p.add_argument('--max-new-tokens', type=int, default=192, help='Maximum generated tokens per example')
     p.add_argument('--device', help='Default: cuda when available, otherwise cpu')
     return p
@@ -30,6 +31,8 @@ def parser():
 
 def evaluation_output_path(args):
     folder = f'{args.split}-{args.max_new_tokens}'
+    if args.no_word_guidance:
+        folder += '-no-word-guidance'
     return Path(args.output) if args.output else Path(args.checkpoint)/'evaluation'/folder
 
 
@@ -74,6 +77,7 @@ def run(args):
     fused = model.config.fuse_stage_outputs
     depths = ('deep',) if fused else model.sentence_depths
     word_task = WordTask(model, tokenizer, device, max_length) if model.word_head is not None else None
+    sentence_word_task = None if args.no_word_guidance else word_task
     compare_depths = word_task is not None and not fused
     word_rows = None
     if args.word_test:
@@ -97,7 +101,7 @@ def run(args):
         comparison.writeheader()
         for i in range(0, len(rows), args.batch_size):
             chosen = rows[i:i+args.batch_size]
-            inputs = batch(chosen, tokenizer, device, max_length, word_task)
+            inputs = batch(chosen, tokenizer, device, max_length, sentence_word_task)
             tokens = (inputs['labels']!=-100).sum().item()
             denominator += tokens
             losses = {'deep': model(**inputs).loss} if fused else model.sequence_losses(**inputs)
@@ -149,7 +153,7 @@ def run(args):
         metrics = by_depth[depths[0]]
         if fused:
             metrics.update(fuse_stage_outputs=True, candidate_guidance=model.config.candidate_guidance,
-                           source_copy=model.config.source_copy,
+                           source_copy=model.config.source_copy, contextual_edits=model.config.contextual_edits,
                            prediction_stage_layers=list(model.prediction_stage_layers),
                            copy_baseline=evaluate([dict(row, prediction=row['source']) for row in predictions['deep']]))
             if word_rows is not None:
@@ -158,6 +162,7 @@ def run(args):
                    rewrite_depth='final' if fused else model.config.depth, active_sequence_layers=model.active_layer_count,
                    cross_entropy=sum(numerators.values()) / (len(numerators) * denominator), max_length=max_length,
                    max_new_tokens=args.max_new_tokens, num_beams=1, do_sample=False,
+                   word_guidance_enabled=sentence_word_task is not None,
                    test_set_used=args.split=='test')
     (out/'metrics.json').write_text(json.dumps(metrics, indent=2, ensure_ascii=False), encoding='utf8', newline='\n')
     print(json.dumps(metrics, indent=2, ensure_ascii=False), flush=True)

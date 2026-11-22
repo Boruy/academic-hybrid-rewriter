@@ -23,14 +23,15 @@ WORD_LAYERS = 2
 FOUR_STAGE_LAYERS = (1, WORD_LAYERS, *NEURAL_DEPTHS.values())
 
 
-def word_boundary_guide(edit, rows, spans, text_mask):
+def word_boundary_guide(edit, rows, spans, text_mask, *, include_positions=False):
     """Scatter word edit probabilities to tokens and emphasize their local edges."""
     weighted = spans * edit[:, None]
     guide = edit.new_zeros(text_mask.shape).index_add(0, rows, weighted).clamp(max=1)
     channels = guide.unsqueeze(1)
     dilated = F.max_pool1d(channels, kernel_size=3, stride=1, padding=1)
     eroded = -F.max_pool1d(-channels, kernel_size=3, stride=1, padding=1)
-    return torch.maximum(guide, (dilated - eroded).squeeze(1)) * text_mask
+    strength = torch.maximum(guide, (dilated - eroded).squeeze(1)) * text_mask
+    return (strength, guide * text_mask) if include_positions else strength
 
 
 @dataclass
@@ -51,6 +52,7 @@ class SixLayerConfig:
     fuse_stage_outputs: bool = False
     candidate_guidance: bool = False
     source_copy: bool = False
+    contextual_edits: bool = False
 
     def __post_init__(self):
         if self.depth not in CHECKPOINT_DEPTHS:
@@ -63,7 +65,9 @@ class SixLayerConfig:
             raise ValueError('Final feature fusion requires four prediction stages')
         if self.source_copy and not self.fuse_stage_outputs:
             raise ValueError('Source copying requires the fused final prediction')
-        if self.candidate_guidance and (self.prediction_stages != 4 or len(self.word_labels) < 2):
+        if self.contextual_edits and not self.source_copy:
+            raise ValueError('Contextual edit guidance requires source copying')
+        if self.candidate_guidance and (self.prediction_stages != 4 or not self.replacement_labels):
             raise ValueError('Candidate guidance requires four prediction stages and replacement labels')
         if min(self.vocab_size, self.d_model, self.attention_heads, self.ffn_dim, self.d_state) < 1:
             raise ValueError('Model dimensions must be positive')
@@ -76,9 +80,14 @@ class SixLayerConfig:
             raise ValueError('Special token outside vocabulary')
 
     @property
-    def word_labels(self):
+    def replacement_labels(self):
         outcomes = {word for replacements in self.word_replacements.values() for word in replacements}
-        return ('', *sorted(outcomes))  # Class zero retains the source word.
+        return tuple(sorted(outcomes))
+
+    @property
+    def word_labels(self):
+        labels = ('', *self.replacement_labels)  # Class zero retains the source word.
+        return (*labels, '[EDIT]') if self.contextual_edits else labels
 
     def save(self, path):
         Path(path).write_text(json.dumps(asdict(self), indent=2) + '\n', encoding='utf8')
@@ -200,9 +209,11 @@ class SourceCopyHead(nn.Module):
             allowed = allowed & (tokens != token_id)
         return allowed
 
-    def forward(self, features, logits, keys, tokens, allowed):
+    def forward(self, features, logits, keys, tokens, allowed, source_bias=None):
         has_source = allowed.any(dim=-1, keepdim=True)
         scores = (self.query(features) @ keys.transpose(-1, -2)) * self.scale
+        if source_bias is not None:
+            scores = scores + source_bias[:, None, :]
         scores = scores.masked_fill(~allowed, -torch.inf).masked_fill(~has_source, 0.)
         attention = scores.softmax(dim=-1, dtype=torch.float32).masked_fill(~allowed, 0.)
         gate = self.gate(features).float()
@@ -247,7 +258,7 @@ class SixLayerRewriter(nn.Module):
                             if joint else None)
         # Start with the position guide alone. Only replacement labels have embeddings.
         self.word_candidate_embeddings = (
-            nn.Parameter(torch.zeros(len(config.word_labels) - 1, config.d_model))
+            nn.Parameter(torch.zeros(len(config.replacement_labels), config.d_model))
             if config.candidate_guidance else None)
         self.mid_predictions = (nn.ModuleDict({
             str(layer): nn.Sequential(nn.Linear(config.d_model, config.d_model), nn.GELU(),
@@ -284,7 +295,13 @@ class SixLayerRewriter(nn.Module):
         features = norm(projected)
         return features, F.linear(features, self.token_embedding.weight)
 
-    def _sequence_projection(self, hidden, depth, stage_features, tokens, mask, segments):
+    def _copy_bias(self, word_guidance):
+        if not self.config.contextual_edits or word_guidance is None:
+            return None
+        # Use the final unexpanded edit weights so a nearby edit does not penalize copying a neighbor.
+        return -word_guidance[..., -1, -1]
+
+    def _sequence_projection(self, hidden, depth, stage_features, tokens, mask, segments, word_guidance):
         features, logits = self._project(hidden, depth, stage_features)
         if self.copy_head is None or depth != 'deep':
             return logits
@@ -292,7 +309,7 @@ class SixLayerRewriter(nn.Module):
         positions = torch.arange(tokens.size(1), device=tokens.device)
         causal = positions[:, None] >= positions
         return self.copy_head(features, logits, self.copy_head.key(features), tokens,
-                              source[:, None, :] & causal)
+                              source[:, None, :] & causal, self._copy_bias(word_guidance))
 
     def _prediction_features(self, hidden, layer):
         if self.mid_predictions is None:
@@ -316,24 +333,32 @@ class SixLayerRewriter(nn.Module):
 
     def _make_word_guide(self, logits, rows, spans, text_mask):
         probabilities = logits.softmax(-1)
-        strength = word_boundary_guide(1 - probabilities[:, 0], rows, spans, text_mask)
+        location = word_boundary_guide(1 - probabilities[:, 0], rows, spans, text_mask,
+                                      include_positions=self.config.contextual_edits)
+        strength, positions = location if self.config.contextual_edits else (location, None)
         if self.word_candidate_embeddings is None:
-            return strength
+            return strength if positions is None else torch.stack((strength, positions), dim=-1)
 
         # Broadcast the probability-weighted replacement vector to the aligned subwords.
-        words = probabilities[:, 1:] @ self.word_candidate_embeddings
+        candidate_count = self.word_candidate_embeddings.size(0)
+        words = probabilities[:, 1:1 + candidate_count] @ self.word_candidate_embeddings
         word_indices, token_indices = (spans & text_mask[rows]).nonzero(as_tuple=True)
         flat_indices = rows[word_indices] * text_mask.size(1) + token_indices
         candidates = words.new_zeros(text_mask.numel(), self.config.d_model).index_add(
             0, flat_indices, words[word_indices])
         candidates = candidates.reshape(*text_mask.shape, self.config.d_model)
-        return torch.cat((strength.unsqueeze(-1), candidates), dim=-1)
+        features = [strength.unsqueeze(-1), candidates]
+        if positions is not None:
+            features.append(positions.unsqueeze(-1))
+        return torch.cat(features, dim=-1)
 
     def _fuse_word_features(self, hidden, guide):
         if guide.ndim < hidden.ndim:
             return hidden + guide.unsqueeze(-1) * self.word_fusion(hidden)
-        strength, candidates = guide[..., :1], guide[..., 1:]
-        return hidden + strength * self.word_fusion(hidden) + candidates
+        hidden = hidden + guide[..., :1] * self.word_fusion(hidden)
+        if self.word_candidate_embeddings is not None:
+            hidden = hidden + guide[..., 1:1 + self.config.d_model]
+        return hidden
 
     def _guide_stage(self, hidden, layer_index, word_guidance):
         if word_guidance is not None and layer_index in self.word_guide_channels:
@@ -351,8 +376,9 @@ class SixLayerRewriter(nn.Module):
 
     def _validate_guidance(self, tokens, word_guidance):
         expected = (*tokens.shape, len(self.word_guide_channels))
-        if self.config.candidate_guidance:
-            expected += (1 + self.config.d_model,)
+        if self.config.candidate_guidance or self.config.contextual_edits:
+            candidate_size = self.config.d_model if self.config.candidate_guidance else 0
+            expected += (1 + candidate_size + int(self.config.contextual_edits),)
         if word_guidance is not None and (
                 self.word_fusion is None or word_guidance.shape != expected):
             raise ValueError(f'Expected word guidance with shape {expected}')
@@ -363,7 +389,7 @@ class SixLayerRewriter(nn.Module):
         stage_features = {} if self.final_fusion is not None and depth == 'deep' else None
         hidden = self._encode(self._embed_sequence(tokens, mask, segments), mask, 0,
                               NEURAL_DEPTHS[depth], word_guidance, stage_features=stage_features)
-        return self._sequence_projection(hidden, depth, stage_features, tokens, mask, segments)
+        return self._sequence_projection(hidden, depth, stage_features, tokens, mask, segments, word_guidance)
 
     def word_logits(self, tokens, mask, segments, focus, allowed, *, refine=True):
         """Read the separate word windows used by earlier joint checkpoints."""
@@ -442,7 +468,7 @@ class SixLayerRewriter(nn.Module):
         for depth in depths:
             stop = NEURAL_DEPTHS[depth]
             hidden = self._encode(hidden, mask, start, stop, guidance, stage_features=stage_features)
-            logits = self._sequence_projection(hidden, depth, stage_features, tokens, mask, segments)
+            logits = self._sequence_projection(hidden, depth, stage_features, tokens, mask, segments, guidance)
             loss_fn = F.nll_loss if self.copy_head is not None and depth == 'deep' else F.cross_entropy
             loss = loss_fn(logits[:, :-1].reshape(-1, self.config.vocab_size), expected, ignore_index=-100)
             outputs[depth] = CausalLMOutput(loss=loss, logits=logits)
@@ -480,13 +506,17 @@ class SixLayerRewriter(nn.Module):
         features, logits = self._project(hidden, depth, stage_features)
         if use_copy:
             # The copy head uses its own prefix memory after the six layer states.
+            bias = self._copy_bias(word_guidance)
+            if bias is None:
+                bias = features.new_zeros(tokens.shape)
             memory = (self.copy_head.key(features)[:, None], tokens[:, None],
-                      self.copy_head.copyable(tokens, valid, segments)[:, None])
+                      self.copy_head.copyable(tokens, valid, segments)[:, None], bias[:, None])
             if len(states) > layer_count:
                 memory = tuple(torch.cat((past, current), dim=1)
                                for past, current in zip(states[layer_count], memory, strict=True))
-            keys, source_tokens, allowed = memory
-            logits = self.copy_head(features[:, None], logits[:, None], keys, source_tokens, allowed[:, None])[:, 0]
+            keys, source_tokens, allowed, source_bias = memory
+            logits = self.copy_head(features[:, None], logits[:, None], keys, source_tokens, allowed[:, None],
+                                    source_bias if self.config.contextual_edits else None)[:, 0]
             updated.append(memory)
         return logits, updated
 
