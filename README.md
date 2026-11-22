@@ -14,6 +14,7 @@ This repository contains the datasets and their provenance, the six-layer model,
 | --- | --- |
 | `data/academic-pairs-v1/` | Ready-to-use training, validation and test splits with a frozen manifest |
 | `data/word-formality-v1/` | Single-word replacements and retain cases for the joint word objective |
+| `data/grammar-edits-v1/` | Training-only synthetic preposition edits and retain examples |
 | `data/raw/`, `data/processed/` | Original IteraTeR release, source hashes and real revision splits |
 | `data/curation/` | Preserved audit records and frozen arXivEdits references; not an approved training corpus |
 | `docs/` | Model, dataset and environment documentation |
@@ -48,6 +49,8 @@ Each sentence batch contains eight real revisions and eight synthetic examples. 
 The shared word head learns additional edit-position supervision from the real training revisions. At inference it can flag source spans without a dictionary entry. P4 uses the final guide to favor copying positions outside the predicted edit regions.
 
 The terminal prints each optimizer update and its losses. Pass `--log-every 10` for a line every ten updates.
+
+The focused grammar experiment continues the completed v6 checkpoint and writes to `runs/six_layer_joint_v7_grammar`. It samples the grammar supplement and gives edited reference tokens extra weight in the final sentence loss. See the [grammar continuation commands](docs/LexiFAR_Training.md#focused-grammar-continuation).
 
 ## Test and export final predictions
 

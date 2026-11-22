@@ -1,0 +1,64 @@
+{"id":"grammar-v1-001","source":"The scoring function incorporates the timing constraints in its objective.","target":"The scoring function incorporates the timing constraints into its objective.","split":"train","synthetic":true}
+{"id":"grammar-v1-002","source":"We integrated the estimated bias in the feedback loop.","target":"We integrated the estimated bias into the feedback loop.","split":"train","synthetic":true}
+{"id":"grammar-v1-003","source":"The preprocessing routine divides the records in three batches.","target":"The preprocessing routine divides the records into three batches.","split":"train","synthetic":true}
+{"id":"grammar-v1-004","source":"We grouped the readings in five temperature bands before analysis.","target":"We grouped the readings into five temperature bands before analysis.","split":"train","synthetic":true}
+{"id":"grammar-v1-005","source":"An offset of 0.2 was added into the final score.","target":"An offset of 0.2 was added to the final score.","split":"train","synthetic":true}
+{"id":"grammar-v1-006","source":"The background signal was subtracted to the measured intensity.","target":"The background signal was subtracted from the measured intensity.","split":"train","synthetic":true}
+{"id":"grammar-v1-007","source":"The revised procedure differs with the earlier approach in two respects.","target":"The revised procedure differs from the earlier approach in two respects.","split":"train","synthetic":true}
+{"id":"grammar-v1-008","source":"The instrument consists in a sensor and a recording unit.","target":"The instrument consists of a sensor and a recording unit.","split":"train","synthetic":true}
+{"id":"grammar-v1-009","source":"The response is proportional with the applied load.","target":"The response is proportional to the applied load.","split":"train","synthetic":true}
+{"id":"grammar-v1-010","source":"The analysis depends of the estimated covariance matrix.","target":"The analysis depends on the estimated covariance matrix.","split":"train","synthetic":true}
+{"id":"grammar-v1-011","source":"The calculated values agree to the measured values within the stated tolerance.","target":"The calculated values agree with the measured values within the stated tolerance.","split":"train","synthetic":true}
+{"id":"grammar-v1-012","source":"The uncertainty decreases for increasing the number of trials.","target":"The uncertainty decreases as the number of trials increases.","split":"train","synthetic":true}
+{"id":"grammar-v1-013","source":"The final estimate is based in the mean of four readings.","target":"The final estimate is based on the mean of four readings.","split":"train","synthetic":true}
+{"id":"grammar-v1-014","source":"Each row corresponds for a distinct observation.","target":"Each row corresponds to a distinct observation.","split":"train","synthetic":true}
+{"id":"grammar-v1-015","source":"This error arises by a mismatch between the two clocks.","target":"This error arises from a mismatch between the two clocks.","split":"train","synthetic":true}
+{"id":"grammar-v1-016","source":"The software converts integer labels in binary vectors.","target":"The software converts integer labels into binary vectors.","split":"train","synthetic":true}
+{"id":"grammar-v1-017","source":"We selected a filter this form to suppress sensor noise.","target":"We selected a filter of this form to suppress sensor noise.","split":"train","synthetic":true}
+{"id":"grammar-v1-018","source":"Only measurements recorded under conditions this type were considered.","target":"Only measurements recorded under conditions of this type were considered.","split":"train","synthetic":true}
+{"id":"grammar-v1-019","source":"This property holds for networks this class.","target":"This property holds for networks of this class.","split":"train","synthetic":true}
+{"id":"grammar-v1-020","source":"The second run was divided three phases.","target":"The second run was divided into three phases.","split":"train","synthetic":true}
+{"id":"grammar-v1-021","source":"The response was compared the analytical prediction.","target":"The response was compared with the analytical prediction.","split":"train","synthetic":true}
+{"id":"grammar-v1-022","source":"We tested the estimator a held-out development set.","target":"We tested the estimator on a held-out development set.","split":"train","synthetic":true}
+{"id":"grammar-v1-023","source":"The calibration values are listed the supplementary table.","target":"The calibration values are listed in the supplementary table.","split":"train","synthetic":true}
+{"id":"grammar-v1-024","source":"The collected samples were sent the laboratory.","target":"The collected samples were sent to the laboratory.","split":"train","synthetic":true}
+{"id":"grammar-v1-025","source":"The units differ the ones reported in the original analysis.","target":"The units differ from the ones reported in the original analysis.","split":"train","synthetic":true}
+{"id":"grammar-v1-026","source":"The discussion focuses the effect of input noise.","target":"The discussion focuses on the effect of input noise.","split":"train","synthetic":true}
+{"id":"grammar-v1-027","source":"The reported change amounts a reduction of 4%.","target":"The reported change amounts to a reduction of 4%.","split":"train","synthetic":true}
+{"id":"grammar-v1-028","source":"All three settings were included the sensitivity analysis.","target":"All three settings were included in the sensitivity analysis.","split":"train","synthetic":true}
+{"id":"grammar-v1-029","source":"We compared the results with with the analytical prediction.","target":"We compared the results with the analytical prediction.","split":"train","synthetic":true}
+{"id":"grammar-v1-030","source":"The width of of the specimen was 3 mm.","target":"The width of the specimen was 3 mm.","split":"train","synthetic":true}
+{"id":"grammar-v1-031","source":"The samples were assigned to to two groups.","target":"The samples were assigned to two groups.","split":"train","synthetic":true}
+{"id":"grammar-v1-032","source":"The procedure is described in in the appendix.","target":"The procedure is described in the appendix.","split":"train","synthetic":true}
+{"id":"grammar-v1-033","source":"The calculation is based on on the original observations.","target":"The calculation is based on the original observations.","split":"train","synthetic":true}
+{"id":"grammar-v1-034","source":"We recorded the response after after each trial.","target":"We recorded the response after each trial.","split":"train","synthetic":true}
+{"id":"grammar-v1-035","source":"The peak was observed at at the same frequency.","target":"The peak was observed at the same frequency.","split":"train","synthetic":true}
+{"id":"grammar-v1-036","source":"The deviations were caused by by a change in temperature.","target":"The deviations were caused by a change in temperature.","split":"train","synthetic":true}
+{"id":"grammar-v1-037","source":"The specimens were stored in the laboratory during the course of calibration.","target":"The specimens were stored in the laboratory during calibration.","split":"train","synthetic":true}
+{"id":"grammar-v1-038","source":"The threshold was held fixed for the duration of the experiment.","target":"The threshold was held fixed throughout the experiment.","split":"train","synthetic":true}
+{"id":"grammar-v1-039","source":"We introduce a procedure for estimating the variance.","target":"We introduce a procedure to estimate the variance.","split":"train","synthetic":true}
+{"id":"grammar-v1-040","source":"We used the filter for reducing short bursts of noise.","target":"We used the filter to reduce short bursts of noise.","split":"train","synthetic":true}
+{"id":"grammar-v1-041","source":"The algorithm was designed for detecting isolated outliers.","target":"The algorithm was designed to detect isolated outliers.","split":"train","synthetic":true}
+{"id":"grammar-v1-042","source":"The procedure can be applied in a wide range of different settings.","target":"The procedure can be applied in a wide range of settings.","split":"train","synthetic":true}
+{"id":"grammar-v1-043","source":"The first group contains samples collected in the field.","target":"The first group contains samples collected in the field.","split":"train","synthetic":true}
+{"id":"grammar-v1-044","source":"The timing constraints were incorporated into the objective function.","target":"The timing constraints were incorporated into the objective function.","split":"train","synthetic":true}
+{"id":"grammar-v1-045","source":"These errors were detected in the output of the simulator.","target":"These errors were detected in the output of the simulator.","split":"train","synthetic":true}
+{"id":"grammar-v1-046","source":"The findings are summarized in Table 2.","target":"The findings are summarized in Table 2.","split":"train","synthetic":true}
+{"id":"grammar-v1-047","source":"The uncertainty arises from variation in the measurements.","target":"The uncertainty arises from variation in the measurements.","split":"train","synthetic":true}
+{"id":"grammar-v1-048","source":"We use a filter of this form when the response is unstable.","target":"We use a filter of this form when the response is unstable.","split":"train","synthetic":true}
+{"id":"grammar-v1-049","source":"We compared the outputs with the baseline predictions.","target":"We compared the outputs with the baseline predictions.","split":"train","synthetic":true}
+{"id":"grammar-v1-050","source":"The procedure consists of three stages.","target":"The procedure consists of three stages.","split":"train","synthetic":true}
+{"id":"grammar-v1-051","source":"The prepared solution was divided into two equal portions.","target":"The prepared solution was divided into two equal portions.","split":"train","synthetic":true}
+{"id":"grammar-v1-052","source":"The power spectrum depends on the window length.","target":"The power spectrum depends on the window length.","split":"train","synthetic":true}
+{"id":"grammar-v1-053","source":"We repeated the procedure for three values of the threshold.","target":"We repeated the procedure for three values of the threshold.","split":"train","synthetic":true}
+{"id":"grammar-v1-054","source":"A sample of 32 records was selected from the database.","target":"A sample of 32 records was selected from the database.","split":"train","synthetic":true}
+{"id":"grammar-v1-055","source":"The signals were recorded through an external interface.","target":"The signals were recorded through an external interface.","split":"train","synthetic":true}
+{"id":"grammar-v1-056","source":"The comparison was made between the two sets of observations.","target":"The comparison was made between the two sets of observations.","split":"train","synthetic":true}
+{"id":"grammar-v1-057","source":"The uncertainty could be reduced by collecting more data.","target":"The uncertainty could be reduced by collecting more data.","split":"train","synthetic":true}
+{"id":"grammar-v1-058","source":"The results from the development set are available in the appendix.","target":"The results from the development set are available in the appendix.","split":"train","synthetic":true}
+{"id":"grammar-v1-059","source":"The model was trained on the smaller subset and evaluated on the full set.","target":"The model was trained on the smaller subset and evaluated on the full set.","split":"train","synthetic":true}
+{"id":"grammar-v1-060","source":"The choice of kernel affects the estimate of the mean.","target":"The choice of kernel affects the estimate of the mean.","split":"train","synthetic":true}
+{"id":"grammar-v1-061","source":"Temperatures below 5 degrees were observed only at the start of the run.","target":"Temperatures below 5 degrees were observed only at the start of the run.","split":"train","synthetic":true}
+{"id":"grammar-v1-062","source":"The parameter was determined independently of the initial conditions.","target":"The parameter was determined independently of the initial conditions.","split":"train","synthetic":true}
+{"id":"grammar-v1-063","source":"The data were projected onto a plane through the origin.","target":"The data were projected onto a plane through the origin.","split":"train","synthetic":true}
+{"id":"grammar-v1-064","source":"The settings at the end of the trial were identical to the initial settings.","target":"The settings at the end of the trial were identical to the initial settings.","split":"train","synthetic":true}

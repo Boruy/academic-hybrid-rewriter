@@ -8,7 +8,7 @@ import unittest
 
 import torch
 
-from academic_rewriter.joint_words import WordTask, changed_source_spans, word_replacements
+from academic_rewriter.joint_words import WordTask, changed_source_spans, edit_target_weights, word_replacements
 from academic_rewriter.rewrite import rewrite_neural
 from academic_rewriter.run import batch, build_tokenizer, parser, read_rows, run
 from academic_rewriter.six_layer import NEURAL_DEPTHS, SixLayerConfig, SixLayerRewriter
@@ -197,6 +197,43 @@ class JointRewriterTests(unittest.TestCase):
             self.assertTrue(torch.isfinite(gradient).all())
             self.assertGreater(gradient[task.edit_label].abs().sum().item(), 0.)
 
+    def test_edit_weights_include_insertions_and_the_continuation_after_deletion(self):
+        replacement = dict(source='We grouped the readings in two bands.',
+                           target='We grouped the readings into two bands.', synthetic=True)
+        rows = [dict(source='Plans this type need review.', target='Plans of this type need review.'),
+                dict(source='The estimate agrees well with the baseline.',
+                     target='The estimate agrees with the baseline.'),
+                dict(source='The procedure stopped at noon today', target='The procedure stopped at noon'),
+                replacement, dict(replacement, grammar_training=True)]
+        with tempfile.TemporaryDirectory() as temporary:
+            tokenizer = build_tokenizer(rows, Path(temporary))
+            encoded = tokenizer([row['target'] for row in rows], padding=True,
+                                return_offsets_mapping=True, return_tensors='pt')
+            weights = edit_target_weights(rows, encoded, 3., tokenizer.eos_token_id)
+            weighted_tokens = [tokenizer.convert_ids_to_tokens(ids[row_weights == 3.].tolist())
+                               for ids, row_weights in zip(encoded['input_ids'], weights, strict=True)]
+            self.assertEqual(weighted_tokens, [['of'], ['with'], ['[EOS]'], [], ['into']])
+            self.assertEqual(weights[~encoded['attention_mask'].bool()].count_nonzero().item(), 0)
+
+    def test_final_loss_weights_target_positions_after_padding_and_shift(self):
+        model = SixLayerRewriter(SixLayerConfig(
+            vocab_size=24, d_model=16, attention_heads=2, ffn_dim=32, dropout=0., depth='joint',
+            prediction_stages=4, fuse_stage_outputs=True, source_copy=True,
+            word_replacements=word_replacements(WORDS))).eval()
+        source = torch.tensor([[1, 4, 5, 2], [1, 6, 2, 0]])
+        labels = torch.tensor([[1, 8, 2, -100], [1, 9, 11, 2]])
+        weights = torch.tensor([[1., 3., 1., 0.], [1., 1., 3., 1.]])
+        with torch.no_grad():
+            output = model(source, source.ne(0), labels, label_weights=weights)
+            losses = model.sequence_losses(source, source.ne(0), labels, label_weights=weights)
+            plain = model.sequence_losses(source, source.ne(0), labels)
+        first = output.logits[0, 3:6].gather(1, labels[0, :3, None]).squeeze(-1)
+        second = output.logits[1, 2:6].gather(1, labels[1, :, None]).squeeze(-1)
+        expected = -((first * weights[0, :3]).sum() + (second * weights[1]).sum()) / weights.sum()
+        torch.testing.assert_close(output.loss, expected)
+        torch.testing.assert_close(losses['deep'], expected)
+        torch.testing.assert_close(losses['medium'], plain['medium'])
+
     def test_source_copy_is_causal_and_matches_cached_decoding(self):
         torch.manual_seed(8)
         model = SixLayerRewriter(SixLayerConfig(
@@ -244,11 +281,14 @@ class JointRewriterTests(unittest.TestCase):
             root = Path(temporary)
             words = root/'words.jsonl'
             reviewed = root/'reviewed.jsonl'
+            grammar = root/'grammar.jsonl'
             output = root/'checkpoint'
             word_test = [dict(source='We get access to the records.', target='We gain access to the records.'),
                          dict(source='The workers get stuck.', target='The workers get stuck.', focus='get')]
             write_rows(words, [dict(row, split='train', synthetic=True) for row in WORDS])
             write_rows(reviewed, word_test)
+            write_rows(grammar, [dict(id='grammar-0', source='We added the term into the objective.',
+                                      target='We added the term to the objective.', split='train', synthetic=True)])
             for split, examples in [('train', WORDS), ('validation', word_test), ('test', word_test)]:
                 rows = [dict(row, id=f'{split}-{i}') for i, row in enumerate(examples)]
                 if split == 'train':
@@ -257,7 +297,9 @@ class JointRewriterTests(unittest.TestCase):
             training = parser().parse_args(['--tiny', '--device', 'cpu', '--data', str(root),
                                             '--word-data', str(words), '--output', str(output), '--steps', '1',
                                             '--source-copy', '--contextual-edits', '--sampling', 'balanced',
-                                            '--batch-size', '2', '--max-length', '24', '--checkpoint-selection', 'final'])
+                                            '--grammar-data', str(grammar), '--grammar-pairs-per-batch', '1',
+                                            '--edit-target-weight', '3', '--batch-size', '4', '--max-length', '24',
+                                            '--checkpoint-selection', 'final'])
             flags = ['--checkpoint', str(output), '--data', str(root), '--device', 'cpu',
                      '--split', 'test', '--max-new-tokens', '8', '--limit', '0']
             with contextlib.redirect_stdout(io.StringIO()) as console:
@@ -279,8 +321,9 @@ class JointRewriterTests(unittest.TestCase):
             self.assertTrue(metrics['word_guidance_enabled'])
             self.assertFalse(without_guidance['word_guidance_enabled'])
             self.assertTrue((output/'evaluation'/'test-8-no-word-guidance'/'predictions.csv').is_file())
-            self.assertEqual(trained['real_examples_seen'], 1)
-            self.assertEqual(trained['synthetic_examples_seen'], 1)
+            self.assertEqual(trained['real_examples_seen'], 2)
+            self.assertEqual(trained['synthetic_examples_seen'], 2)
+            self.assertEqual(trained['grammar_examples_seen'], 1)
             self.assertEqual(trained['validation_cross_entropy'], trained['validation_cross_entropy_by_depth']['deep'])
             self.assertEqual(trained['prediction_stage_layers'], [1, 2, 4, 6])
             self.assertEqual(metrics['prediction_stage_layers'], [1, 2, 4, 6])

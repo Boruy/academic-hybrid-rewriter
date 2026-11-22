@@ -60,6 +60,23 @@ The default config passes `--overwrite` and reruns training in `runs/six_layer_j
 
 `--init-checkpoint` on `academic_rewriter.run` continues the saved architecture and tokenizer with a fresh optimizer and writes to a different directory. A joint continuation uses the saved word replacement vocabulary, source-copy setting and contextual-edit setting. Start a fresh joint run with `--source-copy --contextual-edits` to train the expanded word head and the guided copy path together.
 
+## Focused grammar continuation
+
+The saved v6 validation outputs retain `in LayoutLM` with guidance both enabled and disabled. They also retain `corpus this kind` and contain malformed suffixes on otherwise recognizable source phrases. Alignment of the 491 real training pairs yielded no single-word `in` to `into` change and no isolated insertion of `of`.
+
+The v7 recipe continues the local `runs/six_layer_joint_v6_edits` checkpoint with a fresh optimizer for 600 updates at LR `1e-4`. Each sentence batch contains eight real revisions, six original synthetic pairs and two [grammar pairs](../data/grammar-edits-v1/README.md). The supplement has 42 edited examples and 22 retain examples. The launcher checks its fingerprint.
+
+P4 weights reference subwords in replaced or inserted spans by three. For deletions it weights the next reference word, or the final end token when the removed material reaches the end. Eligible labels come from real training pairs and the grammar supplement. Other target tokens have weight one. The recipe normalizes the P4 loss by the sum of target weights and uses ordinary validation loss for logging. It saves the final update as the v7 checkpoint.
+
+```powershell
+$python = '.\.venv\Scripts\python.exe'
+$run = 'runs/six_layer_joint_v7_grammar'
+& $python scripts/train_six_layer.py --config configs/six_layer_grammar_edits.json
+& $python -m academic_rewriter.test --checkpoint $run --split validation --limit 0
+```
+
+Compare `evaluation/validation-192/predictions.csv` with the v6 file by ID. Inspect `065afd42f64dbb51` for the expression about physical appearance, `00a677997fbda9ac` for the preposition after `incorporate`, and `bb11df8bbef966fe` for the missing `of`. Check complete words, scientific meaning and necessary edits in the raw text. The v7 training run and this review are pending.
+
 ## Evaluate the entire split
 
 ```powershell

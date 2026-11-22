@@ -53,6 +53,10 @@ def main():
         word_path = ROOT/settings['word_data']
         if hashlib.sha256(word_path.read_bytes()).hexdigest() != config['word_data_sha256']:
             raise ValueError('Word training fingerprint changed; use a new versioned study')
+    if settings.get('grammar_data'):
+        grammar_path = ROOT/settings['grammar_data']
+        if hashlib.sha256(grammar_path.read_bytes()).hexdigest() != config.get('grammar_data_sha256'):
+            raise ValueError('Grammar training fingerprint changed; use a new versioned supplement')
     command = [sys.executable, '-m', 'academic_rewriter.run']
     for key, value in settings.items():
         flag = '--'+key.replace('_', '-')

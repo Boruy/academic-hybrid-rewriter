@@ -2,6 +2,7 @@
 from collections import defaultdict
 from dataclasses import dataclass
 from difflib import SequenceMatcher
+from functools import lru_cache
 
 import torch
 from torch.nn import functional as F
@@ -39,13 +40,52 @@ def align_spans(offsets, starts, ends):
     return aligned, complete
 
 
+@lru_cache(maxsize=2048)
+def revision_regions(source, reference):
+    """Align revisions and mark changed spans plus the target continuation after deletions."""
+    original = list(_TOKEN.finditer(source))
+    revised = list(_TOKEN.finditer(reference))
+    aligner = SequenceMatcher(None, [span.group() for span in original],
+                              [span.group() for span in revised], autojunk=False)
+    source_spans, target_spans = set(), set()
+    edited_end = False
+    for kind, start, stop, target_start, target_stop in aligner.get_opcodes():
+        if kind == 'equal':
+            continue
+        source_spans.update(span.span() for span in original[start:stop])
+        target_spans.update(span.span() for span in revised[target_start:target_stop])
+        if kind == 'delete':
+            if target_start < len(revised):
+                target_spans.add(revised[target_start].span())
+            else:
+                edited_end = True
+    return frozenset(source_spans), frozenset(target_spans), edited_end
+
+
 def changed_source_spans(source, reference):
-    """Find source spans replaced or deleted in an aligned revision."""
-    source_spans = list(_TOKEN.finditer(source))
-    aligner = SequenceMatcher(None, [span.group() for span in source_spans],
-                              [span.group() for span in _TOKEN.finditer(reference)], autojunk=False)
-    return {span.span() for kind, start, stop, _, _ in aligner.get_opcodes()
-            if kind in ('replace', 'delete') for span in source_spans[start:stop]}
+    return revision_regions(source, reference)[0]
+
+
+def has_edit_supervision(row):
+    return not row.get('synthetic') or row.get('grammar_training') is True
+
+
+def edit_target_weights(rows, encoding, multiplier, eos_token_id):
+    """Give all subwords of selected reference spans the configured training weight."""
+    weights = encoding['attention_mask'].float()
+    for index, row in enumerate(rows):
+        if not has_edit_supervision(row):
+            continue
+        _, spans, edited_end = revision_regions(row['source'], row['target'])
+        if spans:
+            starts, ends = torch.tensor(sorted(spans)).unbind(-1)
+            aligned, complete = align_spans(encoding['offset_mapping'][index], starts[:, None], ends[:, None])
+            weights[index, aligned[complete].any(0)] = multiplier
+        if edited_end:
+            end = int(encoding['attention_mask'][index].sum()) - 1
+            if encoding['input_ids'][index, end] == eos_token_id:
+                weights[index, end] = multiplier
+    return weights
 
 
 class WordTask:
@@ -181,10 +221,10 @@ class WordTask:
         return self._source_predictions(texts, encoding)[2]
 
     def supervised_guidance(self, rows, encoding):
-        """Build the same guides as inference and supervise edit positions on real pairs."""
+        """Build source-only guides and supervise edit positions on labeled sentence pairs."""
         candidates, outputs, guides = self._source_predictions([row['source'] for row in rows], encoding)
         edits_by_row = {index: changed_source_spans(row['source'], row['target'])
-                        for index, row in enumerate(rows) if not row.get('synthetic')}
+                        for index, row in enumerate(rows) if has_edit_supervision(row)}
         labeled = [(index, span.span() in edits_by_row[row])
                    for index, (row, span) in enumerate(candidates) if row in edits_by_row]
         if not labeled:

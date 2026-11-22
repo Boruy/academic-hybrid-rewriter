@@ -439,8 +439,10 @@ class SixLayerRewriter(nn.Module):
             start = stop
         return outputs, torch.stack(guides, dim=2)
 
-    def _labeled_outputs(self, input_ids, attention_mask, labels, depths, word_guidance):
+    def _labeled_outputs(self, input_ids, attention_mask, labels, depths, word_guidance, label_weights=None):
         self._validate_guidance(input_ids, word_guidance)
+        if label_weights is not None and label_weights.shape != labels.shape:
+            raise ValueError('Label weights must match target IDs')
         sources = [row[mask.bool()] for row, mask in zip(input_ids, attention_mask)]
         targets = [row[row != -100] for row in labels]
         if any(len(row) == 0 for row in sources + targets):
@@ -450,6 +452,7 @@ class SixLayerRewriter(nn.Module):
         mask = torch.zeros_like(tokens)
         segments = torch.zeros_like(tokens)
         expected = tokens.new_full(tokens.shape, -100)
+        weights = label_weights.new_zeros(tokens.shape) if label_weights is not None else None
         guidance = (word_guidance.new_zeros((*tokens.shape, *word_guidance.shape[2:]))
                     if word_guidance is not None else None)
         for i, (source, target) in enumerate(zip(sources, targets)):
@@ -458,10 +461,14 @@ class SixLayerRewriter(nn.Module):
             mask[i, :end] = 1
             segments[i, boundary:end] = 1
             expected[i, boundary:end] = target
+            if weights is not None:
+                weights[i, boundary:end] = label_weights[i, labels[i] != -100]
             if guidance is not None:
                 guidance[i, :boundary] = word_guidance[i, attention_mask[i].bool()]
         hidden = self._embed_sequence(tokens, mask, segments)
         expected = expected[:, 1:].reshape(-1)
+        if weights is not None:
+            weights = weights[:, 1:].reshape(-1)
         outputs = {}
         start = 0
         stage_features = {} if self.final_fusion is not None and 'deep' in depths else None
@@ -470,22 +477,29 @@ class SixLayerRewriter(nn.Module):
             hidden = self._encode(hidden, mask, start, stop, guidance, stage_features=stage_features)
             logits = self._sequence_projection(hidden, depth, stage_features, tokens, mask, segments, guidance)
             loss_fn = F.nll_loss if self.copy_head is not None and depth == 'deep' else F.cross_entropy
-            loss = loss_fn(logits[:, :-1].reshape(-1, self.config.vocab_size), expected, ignore_index=-100)
+            next_logits = logits[:, :-1].reshape(-1, self.config.vocab_size)
+            if weights is not None and depth == 'deep':
+                token_loss = loss_fn(next_logits, expected, ignore_index=-100, reduction='none')
+                loss = (token_loss * weights).sum() / weights.sum()
+            else:
+                loss = loss_fn(next_logits, expected, ignore_index=-100)
             outputs[depth] = CausalLMOutput(loss=loss, logits=logits)
             start = stop
         return outputs
 
-    def sequence_losses(self, input_ids, attention_mask, labels, word_guidance=None):
+    def sequence_losses(self, input_ids, attention_mask, labels, word_guidance=None, label_weights=None):
         """Compute the sentence objectives with a single pass through the shared blocks."""
-        outputs = self._labeled_outputs(input_ids, attention_mask, labels, self.sentence_depths, word_guidance)
+        outputs = self._labeled_outputs(input_ids, attention_mask, labels, self.sentence_depths,
+                                        word_guidance, label_weights)
         return {depth: output.loss for depth, output in outputs.items()}
 
-    def forward(self, input_ids, attention_mask, labels=None, *, depth=None, word_guidance=None, **kwargs):
+    def forward(self, input_ids, attention_mask, labels=None, *, depth=None, word_guidance=None,
+                label_weights=None, **kwargs):
         depth = self._resolve_depth(depth)
         if labels is None:
             return CausalLMOutput(logits=self.sequence_logits(input_ids, attention_mask, depth=depth,
                                                             word_guidance=word_guidance))
-        return self._labeled_outputs(input_ids, attention_mask, labels, (depth,), word_guidance)[depth]
+        return self._labeled_outputs(input_ids, attention_mask, labels, (depth,), word_guidance, label_weights)[depth]
 
     def step(self, tokens, positions, segments, valid, states, *, depth=None, word_guidance=None):
         depth = self._resolve_depth(depth)

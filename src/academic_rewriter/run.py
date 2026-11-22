@@ -4,7 +4,7 @@ from pathlib import Path
 import torch
 from transformers import AutoTokenizer,PreTrainedTokenizerFast
 from tokenizers import Tokenizer,models,pre_tokenizers,trainers,processors,decoders
-from .joint_words import WordTask, word_replacements
+from .joint_words import WordTask, edit_target_weights, word_replacements
 from .lexical import read_lexical_training
 from .six_layer import CHECKPOINT_DEPTHS, SixLayerConfig, SixLayerRewriter
 
@@ -36,14 +36,17 @@ def build_subword_tokenizer(rows,out):
     result=PreTrainedTokenizerFast(tokenizer_object=tok,pad_token='[PAD]',bos_token='[BOS]',eos_token='[EOS]',unk_token='[UNK]')
     result.save_pretrained(out); return result
 
-def _prepare_batch(rows, tokenizer, device, max_length, word_task=None, *, supervise_edits=False):
+def _prepare_batch(rows, tokenizer, device, max_length, word_task=None, *, supervise_edits=False, edit_weight=1.):
     sources = [r['source'] for r in rows]
     x=tokenizer(sources,padding=True,truncation=True,max_length=max_length,return_tensors='pt',
                 return_offsets_mapping=word_task is not None)
-    y=tokenizer([r['target'] for r in rows],padding=True,truncation=True,max_length=max_length,return_tensors='pt')['input_ids']
-    y[y==tokenizer.pad_token_id]=-100
+    y = tokenizer([r['target'] for r in rows], padding=True, truncation=True, max_length=max_length,
+                  return_tensors='pt', return_offsets_mapping=edit_weight > 1.)
+    labels = y['input_ids'].masked_fill(y['input_ids'] == tokenizer.pad_token_id, -100)
     inputs = {'input_ids':x['input_ids'].to(device),'attention_mask':x['attention_mask'].to(device),
-              'labels':y.to(device)}
+              'labels':labels.to(device)}
+    if edit_weight > 1.:
+        inputs['label_weights'] = edit_target_weights(rows, y, edit_weight, tokenizer.eos_token_id).to(device)
     edit_loss = None
     if word_task and supervise_edits and word_task.edit_label is not None:
         inputs['word_guidance'], edit_loss = word_task.supervised_guidance(rows, x)
@@ -68,6 +71,13 @@ def run(args):
         raise ValueError('early stopping requires a positive validation interval and nonnegative patience')
     if not math.isfinite(args.word_loss_weight) or args.word_loss_weight <= 0:
         raise ValueError('word-loss-weight must be finite and positive')
+    if not math.isfinite(args.edit_target_weight) or args.edit_target_weight < 1.:
+        raise ValueError('edit-target-weight must be finite and at least 1')
+    grammar_per_batch = args.grammar_pairs_per_batch
+    if grammar_per_batch < 0 or bool(args.grammar_data) != bool(grammar_per_batch):
+        raise ValueError('Supply --grammar-data with a positive --grammar-pairs-per-batch')
+    if grammar_per_batch and args.sampling != 'balanced':
+        raise ValueError('Grammar training pairs require balanced sampling')
     torch.manual_seed(args.seed); random.seed(args.seed)
     if torch.cuda.is_available(): torch.cuda.manual_seed_all(args.seed)
     device=torch.device(args.device or ('cuda' if torch.cuda.is_available() else 'cpu'))
@@ -85,18 +95,28 @@ def run(args):
         raise ValueError('Sentence validation requires a nonsynthetic held-out split')
     train=all_train[:args.train_limit] if args.train_limit else all_train
     val=validation[:args.val_limit] if args.val_limit else validation
+    grammar_rows = []
+    if args.grammar_data:
+        grammar_rows = read_rows(Path(args.grammar_data))
+        if not grammar_rows or any(row.get('split') != 'train' or row.get('synthetic') is not True
+                                   for row in grammar_rows):
+            raise ValueError('Grammar data must contain only synthetic training rows')
+        grammar_rows = [dict(row, grammar_training=True) for row in grammar_rows]
     fixed_rows = train[:args.batch_size]
     if args.sampling == 'balanced':
         real_train = [row for row in train if not row.get('synthetic')]
         synthetic_train = [row for row in train if row.get('synthetic')]
         real_per_batch = (args.batch_size + 1) // 2
-        synthetic_per_batch = args.batch_size // 2
-        if not synthetic_per_batch:
+        if args.batch_size < 2:
             raise ValueError('Balanced sampling requires a batch size of at least 2')
+        synthetic_per_batch = args.batch_size // 2 - grammar_per_batch
+        if synthetic_per_batch < 0 or len(grammar_rows) < grammar_per_batch:
+            raise ValueError('Grammar pairs must fit in the synthetic half of the batch and the supplied corpus')
         if len(real_train) < real_per_batch or len(synthetic_train) < synthetic_per_batch:
             raise ValueError(f'Balanced sampling needs {real_per_batch} real and '
                              f'{synthetic_per_batch} synthetic training pairs per batch')
-        fixed_rows = real_train[:real_per_batch] + synthetic_train[:synthetic_per_batch]
+        fixed_rows = real_train[:real_per_batch] + synthetic_train[:synthetic_per_batch] + grammar_rows[:grammar_per_batch]
+    train = train + grammar_rows
     parent=None
     if args.init_checkpoint:
         parent=Path(args.init_checkpoint)
@@ -119,6 +139,8 @@ def run(args):
         raise ValueError('Source copying requires joint training')
     if not parent and args.contextual_edits and not args.source_copy:
         raise ValueError('Contextual edit guidance requires --source-copy')
+    if args.edit_target_weight > 1. and depth == 'medium':
+        raise ValueError('Edit target weighting requires the final sentence head')
     word_rows = []
     word_hash = None
     replacements = {}
@@ -134,7 +156,7 @@ def run(args):
         result_path.unlink(missing_ok=True)
     (out/'run_args.json').write_text(json.dumps(vars(args),indent=2),encoding='utf8')
     if not parent:
-        tokenizer=(build_tokenizer if args.tiny else build_subword_tokenizer)(all_train + word_rows,out/'tokenizer')
+        tokenizer=(build_tokenizer if args.tiny else build_subword_tokenizer)(all_train + word_rows + grammar_rows,out/'tokenizer')
         six_config=SixLayerConfig(vocab_size=len(tokenizer),d_model=32 if args.tiny else args.d_model,
             attention_heads=args.attention_heads,ffn_dim=64 if args.tiny else args.ffn_dim,
             dropout=0. if args.tiny else args.dropout,max_positions=2*args.max_length+2,
@@ -163,7 +185,7 @@ def run(args):
 
     def train_objective(rows, words):
         inputs, edit_loss = _prepare_batch(rows, tokenizer, device, args.max_length, word_task,
-                                          supervise_edits=True)
+                                          supervise_edits=True, edit_weight=args.edit_target_weight)
         sentence = model.sequence_losses(**inputs)
         loss = sum(sentence.values()) / len(sentence)
         terms = {f'{name}_cross_entropy': value for name, value in sentence.items()}
@@ -237,6 +259,8 @@ def run(args):
         if args.sampling == 'balanced':
             chosen = random.sample(real_train, real_per_batch)
             chosen.extend(random.sample(synthetic_train, synthetic_per_batch))
+            if grammar_per_batch:
+                chosen.extend(random.sample(grammar_rows, grammar_per_batch))
             random.shuffle(chosen)
         elif args.sampling=='shuffle-epochs':
             if not order:
@@ -302,10 +326,14 @@ def run(args):
         source_copy=six_config.source_copy, contextual_edits=six_config.contextual_edits,
         real_examples_seen=real_examples_seen,
         synthetic_examples_seen=examples_seen-real_examples_seen,
+        edit_target_weight=args.edit_target_weight,
         experiment_type='pipeline smoke test, not a quality comparison' if args.tiny else 'six-layer synthetic-augmented exploratory training',
         cross_entropy_comparability='Compare CE only when tokenization and evaluation protocol match.')
     if not parent:
         result['fresh_input_embedding_std'] = model.input_embedding_init_std
+    if grammar_rows:
+        result.update(grammar_training_pairs=len(grammar_rows), grammar_examples_seen=actual_steps * grammar_per_batch,
+                      grammar_data_sha256=file_hash(Path(args.grammar_data)))
     result['validation_cross_entropy_by_depth'] = selected_validation
     if word_task:
         fused = six_config.fuse_stage_outputs
@@ -353,6 +381,9 @@ def parser():
                    help='New runs default to joint; continuations use the saved depth')
     p.add_argument('--word-data', default='data/word-formality-v1/train.jsonl', help='Word training pairs for the joint model')
     p.add_argument('--word-loss-weight', type=float, default=.25, help='Weight on the joint single-word cross-entropy')
+    p.add_argument('--grammar-data', help='Optional synthetic grammar pairs for training')
+    p.add_argument('--grammar-pairs-per-batch', type=int, default=0, help='Grammar slots within the synthetic half of a balanced batch')
+    p.add_argument('--edit-target-weight', type=float, default=1., help='P4 target multiplier at aligned edits and deletion boundaries')
     p.add_argument('--word-guidance', choices=['position', 'candidates'],
                    help='Fresh joint runs default to candidates; continuations use the saved setting')
     p.add_argument('--source-copy', action=argparse.BooleanOptionalAction,
