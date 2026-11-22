@@ -149,6 +149,7 @@ def run(args):
         metrics = by_depth[depths[0]]
         if fused:
             metrics.update(fuse_stage_outputs=True, candidate_guidance=model.config.candidate_guidance,
+                           source_copy=model.config.source_copy,
                            prediction_stage_layers=list(model.prediction_stage_layers),
                            copy_baseline=evaluate([dict(row, prediction=row['source']) for row in predictions['deep']]))
             if word_rows is not None:

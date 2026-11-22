@@ -22,7 +22,7 @@ Each stage has a `MidFPred` projection with two linear layers and GELU. The shar
 
 For example, an edit to `get access` can pass a vector weighted toward `gain`, while an edit to `get estimates` can pass a vector weighted toward `obtain`. Both components use the input sentence during training and cached decoding. The original source tokens remain in the prefix.
 
-At every token position, the model concatenates the four projected features F1–F4. A learned `4d → d` projection produces the fused feature for the vocabulary head. The same fusion runs in the training forward pass and cached generation.
+At every token position, the model concatenates the four projected features F1–F4. A learned `4d → d` projection produces the fused feature for the vocabulary head. The same fusion runs in the training forward pass and cached generation. The default experiment uses these features to attend over eligible source tokens and learn how much probability to assign to copying them at each step. P4 combines that probability with the vocabulary distribution in the figure.
 
 Each optimizer update uses a batch of [sentence pairs](../data/academic-pairs-v1/README.md) and a batch of [word pairs](../data/word-formality-v1/README.md). The default loss is `0.5 × CE(P3 auxiliary sentence) + 0.5 × CE(P4 final sentence) + 0.25 × mean(CE(P1 word), CE(P2 word), CE(P3 word))`. The word objectives supervise the labeled replacement or retain decision. The logs record the auxiliary and final losses. Checkpoint selection uses the fused final cross-entropy on the real validation split.
 
@@ -32,13 +32,13 @@ Run from the repository root in PowerShell. The default training config replaces
 
 ```powershell
 $python = '.\.venv\Scripts\python.exe'
-$checkpoint = 'runs/six_layer_joint_v4'
+$checkpoint = 'runs/six_layer_joint_v5_copy'
 $sentence = 'The proposed method gets better results than the baseline.'
 & $python scripts/train_six_layer.py --output $checkpoint
 & $python -m academic_rewriter.rewrite --checkpoint $checkpoint --text $sentence
 ```
 
-Joint checkpoints record the stage layout, feature fusion, candidate guidance and replacement vocabulary in `six_layer_config.json`. Earlier joint checkpoints without a candidate setting use position guides. Start a fresh run to train the new candidate vectors. The single-sentence command returns the source if the rewrite is empty, lacks an end token or changes the numeric strings.
+Joint checkpoints record the stage layout, feature fusion, candidate guidance, replacement vocabulary and source-copy setting in `six_layer_config.json`. Earlier joint checkpoints without a candidate setting use position guides. Checkpoints saved before source copying use the vocabulary head shown in the figure. The single-sentence command returns the source if the rewrite is empty, lacks an end token or changes the numeric strings.
 
 ## Test the fused rewrite
 

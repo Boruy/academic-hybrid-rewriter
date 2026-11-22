@@ -50,6 +50,7 @@ class SixLayerConfig:
     prediction_stages: int = 3  # Layout of joint checkpoints saved before explicit stage versioning.
     fuse_stage_outputs: bool = False
     candidate_guidance: bool = False
+    source_copy: bool = False
 
     def __post_init__(self):
         if self.depth not in CHECKPOINT_DEPTHS:
@@ -60,6 +61,8 @@ class SixLayerConfig:
             raise ValueError('Four prediction stages require a joint checkpoint')
         if self.fuse_stage_outputs and self.prediction_stages != 4:
             raise ValueError('Final feature fusion requires four prediction stages')
+        if self.source_copy and not self.fuse_stage_outputs:
+            raise ValueError('Source copying requires the fused final prediction')
         if self.candidate_guidance and (self.prediction_stages != 4 or len(self.word_labels) < 2):
             raise ValueError('Candidate guidance requires four prediction stages and replacement labels')
         if min(self.vocab_size, self.d_model, self.attention_heads, self.ffn_dim, self.d_state) < 1:
@@ -178,6 +181,39 @@ class MambaBlock(nn.Module):
         return (hidden + self.dropout(output)) * valid[:, None], (history, ssm)
 
 
+class SourceCopyHead(nn.Module):
+    """Mix vocabulary generation with a distribution over source token positions."""
+
+    def __init__(self, config):
+        super().__init__()
+        self.query = nn.Linear(config.d_model, config.d_model, bias=False)
+        self.key = nn.Linear(config.d_model, config.d_model, bias=False)
+        self.gate = nn.Linear(config.d_model, 1)
+        self.scale = config.d_model ** -0.5
+        self.special_ids = (config.pad_token_id, config.bos_token_id, config.eos_token_id)
+
+    def copyable(self, tokens, mask, segments):
+        allowed = mask.bool()
+        if segments is not None:
+            allowed = allowed & (segments == 0)
+        for token_id in self.special_ids:
+            allowed = allowed & (tokens != token_id)
+        return allowed
+
+    def forward(self, features, logits, keys, tokens, allowed):
+        has_source = allowed.any(dim=-1, keepdim=True)
+        scores = (self.query(features) @ keys.transpose(-1, -2)) * self.scale
+        scores = scores.masked_fill(~allowed, -torch.inf).masked_fill(~has_source, 0.)
+        attention = scores.softmax(dim=-1, dtype=torch.float32).masked_fill(~allowed, 0.)
+        gate = self.gate(features).float()
+        vocabulary_weight = (-gate).sigmoid().masked_fill(~has_source, 1.)
+        vocabulary = logits.softmax(dim=-1, dtype=torch.float32) * vocabulary_weight
+        # Repeated source tokens share one vocabulary entry and add their mass.
+        token_ids = tokens[:, None, :].expand_as(attention)
+        combined = vocabulary.scatter_add(-1, token_ids, gate.sigmoid() * attention)
+        return combined.clamp_min(torch.finfo(combined.dtype).tiny).log()
+
+
 class SixLayerRewriter(nn.Module):
     layer_layout = ('lstm', 'lstm', 'transformer', 'transformer', 'mamba', 'mamba')
     input_embedding_init_std = 0.02
@@ -227,6 +263,7 @@ class SixLayerRewriter(nn.Module):
             self.position_embedding.weight.mul_(self.input_embedding_init_std)
             self.segment_embedding.weight.mul_(self.input_embedding_init_std)
             self.token_embedding.weight[config.pad_token_id].zero_()
+        self.copy_head = SourceCopyHead(config) if config.source_copy else None
 
     def _resolve_depth(self, depth):
         depth = self.sentence_depths[-1] if depth is None else depth
@@ -244,7 +281,18 @@ class SixLayerRewriter(nn.Module):
             projected = stage_features[layer]
         else:
             projected = self._prediction_features(hidden, layer)
-        return F.linear(norm(projected), self.token_embedding.weight)
+        features = norm(projected)
+        return features, F.linear(features, self.token_embedding.weight)
+
+    def _sequence_projection(self, hidden, depth, stage_features, tokens, mask, segments):
+        features, logits = self._project(hidden, depth, stage_features)
+        if self.copy_head is None or depth != 'deep':
+            return logits
+        source = self.copy_head.copyable(tokens, mask, segments)
+        positions = torch.arange(tokens.size(1), device=tokens.device)
+        causal = positions[:, None] >= positions
+        return self.copy_head(features, logits, self.copy_head.key(features), tokens,
+                              source[:, None, :] & causal)
 
     def _prediction_features(self, hidden, layer):
         if self.mid_predictions is None:
@@ -315,7 +363,7 @@ class SixLayerRewriter(nn.Module):
         stage_features = {} if self.final_fusion is not None and depth == 'deep' else None
         hidden = self._encode(self._embed_sequence(tokens, mask, segments), mask, 0,
                               NEURAL_DEPTHS[depth], word_guidance, stage_features=stage_features)
-        return self._project(hidden, depth, stage_features)
+        return self._sequence_projection(hidden, depth, stage_features, tokens, mask, segments)
 
     def word_logits(self, tokens, mask, segments, focus, allowed, *, refine=True):
         """Read the separate word windows used by earlier joint checkpoints."""
@@ -394,9 +442,9 @@ class SixLayerRewriter(nn.Module):
         for depth in depths:
             stop = NEURAL_DEPTHS[depth]
             hidden = self._encode(hidden, mask, start, stop, guidance, stage_features=stage_features)
-            logits = self._project(hidden, depth, stage_features)
-            loss = F.cross_entropy(logits[:, :-1].reshape(-1, self.config.vocab_size), expected,
-                                   ignore_index=-100)
+            logits = self._sequence_projection(hidden, depth, stage_features, tokens, mask, segments)
+            loss_fn = F.nll_loss if self.copy_head is not None and depth == 'deep' else F.cross_entropy
+            loss = loss_fn(logits[:, :-1].reshape(-1, self.config.vocab_size), expected, ignore_index=-100)
             outputs[depth] = CausalLMOutput(loss=loss, logits=logits)
             start = stop
         return outputs
@@ -420,13 +468,27 @@ class SixLayerRewriter(nn.Module):
                                         self.segment_embedding(segments)) * valid[:, None]
         updated = []
         stage_features = {} if self.final_fusion is not None and depth == 'deep' else None
-        active = islice(self.layers, NEURAL_DEPTHS[depth])
-        for index, (layer, state) in enumerate(zip(active, states, strict=True)):
+        layer_count = NEURAL_DEPTHS[depth]
+        use_copy = self.copy_head is not None and depth == 'deep'
+        layer_states = states[:layer_count] if use_copy else states
+        active = islice(self.layers, layer_count)
+        for index, (layer, state) in enumerate(zip(active, layer_states, strict=True)):
             hidden = self._guide_stage(hidden, index, word_guidance)
             hidden, state = layer.step(hidden, valid, state)
             self._record_stage_features(stage_features, hidden, index + 1)
             updated.append(state)
-        return self._project(hidden, depth, stage_features), updated
+        features, logits = self._project(hidden, depth, stage_features)
+        if use_copy:
+            # The copy head uses its own prefix memory after the six layer states.
+            memory = (self.copy_head.key(features)[:, None], tokens[:, None],
+                      self.copy_head.copyable(tokens, valid, segments)[:, None])
+            if len(states) > layer_count:
+                memory = tuple(torch.cat((past, current), dim=1)
+                               for past, current in zip(states[layer_count], memory, strict=True))
+            keys, source_tokens, allowed = memory
+            logits = self.copy_head(features[:, None], logits[:, None], keys, source_tokens, allowed[:, None])[:, 0]
+            updated.append(memory)
+        return logits, updated
 
     @torch.no_grad()
     def generate(self, input_ids, attention_mask, max_new_tokens=128, num_beams=1,

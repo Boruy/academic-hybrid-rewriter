@@ -14,7 +14,7 @@ def main():
     parser.add_argument('--config', default='configs/six_layer_experiment.json')
     parser.add_argument('--output', help='Checkpoint directory (overwritten with the default config)')
     parser.add_argument('--depth', choices=['joint', 'medium', 'deep'],
-                        help='Default is joint; medium and deep reproduce legacy single-output runs')
+                        help='Default is joint; medium and deep train a single output')
     parser.add_argument('--word-guidance', choices=['position', 'candidates'],
                         help='Override the joint word guidance in the experiment config')
     parser.add_argument('--log-every', type=int, help='Print progress every N updates')
@@ -42,6 +42,8 @@ def main():
     settings = dict(config['settings'], model=config['model'], data=config['data'], output=config['output'])
     if args.depth:
         settings['depth'] = args.depth
+        if args.depth != 'joint':
+            settings.pop('source_copy', None)
     if args.word_guidance:
         settings['word_guidance'] = args.word_guidance
     if args.log_every is not None:

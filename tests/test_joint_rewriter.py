@@ -44,6 +44,7 @@ class JointRewriterTests(unittest.TestCase):
                     self.assertEqual(model.final_fusion is not None, fused)
                     self.assertFalse(model.config.candidate_guidance)
                     self.assertNotIn('word_candidate_embeddings', model.state_dict())
+                    self.assertIsNone(model.copy_head)
 
     def test_candidate_guide_weights_replacements_at_their_subword_positions(self):
         model = SixLayerRewriter(SixLayerConfig(
@@ -166,6 +167,44 @@ class JointRewriterTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, 'only the fused final rewrite'):
                 model.generate(tokens, mask, depth='medium', max_new_tokens=1)
 
+    def test_source_copy_is_causal_and_matches_cached_decoding(self):
+        torch.manual_seed(8)
+        model = SixLayerRewriter(SixLayerConfig(
+            vocab_size=24, d_model=16, attention_heads=2, ffn_dim=32, dropout=0., depth='joint',
+            prediction_stages=4, fuse_stage_outputs=True, source_copy=True,
+            word_replacements=word_replacements(WORDS))).eval()
+        tokens = torch.tensor([[1, 4, 4, 7, 2, 1, 9, 2], [1, 2, 1, 8, 2, 0, 0, 0]])
+        mask = tokens.ne(0)
+        segments = torch.tensor([[0, 0, 0, 0, 0, 1, 1, 1], [0, 0, 1, 1, 1, 0, 0, 0]])
+        with torch.no_grad():
+            expected = model.sequence_logits(tokens, mask, segments)
+            states = [None] * 6
+            for index in range(tokens.size(1)):
+                valid = mask[:, index]
+                actual, states = model.step(tokens[:, index], torch.full((2,), index),
+                                            segments[:, index], valid, states)
+                torch.testing.assert_close(actual[valid], expected[valid, index], atol=4e-6, rtol=4e-5)
+
+            # Make the vocabulary and attention uniform so copied mass can be checked directly.
+            model.token_embedding.weight.zero_()
+            model.copy_head.query.weight.zero_()
+            model.copy_head.gate.weight.zero_()
+            gate_bias = torch.tensor(12.)
+            model.copy_head.gate.bias.fill_(gate_bias.item())
+            probabilities = model.sequence_logits(tokens, mask, segments).exp()
+        vocab_mass = (-gate_bias).sigmoid().item() / model.config.vocab_size
+        copy_mass = gate_bias.sigmoid().item()
+        # Only the first occurrence of token 4 has been seen at position 1.
+        early = torch.full_like(probabilities[0, 1], vocab_mass)
+        early[4] += copy_mass
+        torch.testing.assert_close(probabilities[0, 1], early)
+        # During the rewrite both source occurrences of token 4 can be copied.
+        later = torch.full_like(probabilities[0, 6], vocab_mass)
+        later[4] += copy_mass * 2 / 3
+        later[7] += copy_mass / 3
+        torch.testing.assert_close(probabilities[0, 6], later)
+        torch.testing.assert_close(probabilities[1, 3], torch.full_like(later, 1 / model.config.vocab_size))
+
     def test_one_training_run_exports_only_the_final_rewrite_and_optional_word_scores(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
@@ -177,9 +216,13 @@ class JointRewriterTests(unittest.TestCase):
             write_rows(words, [dict(row, split='train', synthetic=True) for row in WORDS])
             write_rows(reviewed, word_test)
             for split, examples in [('train', WORDS), ('validation', word_test), ('test', word_test)]:
-                write_rows(root/(split+'.jsonl'), [dict(row, id=f'{split}-{i}') for i, row in enumerate(examples)])
+                rows = [dict(row, id=f'{split}-{i}') for i, row in enumerate(examples)]
+                if split == 'train':
+                    rows[0]['synthetic'] = True
+                write_rows(root/(split+'.jsonl'), rows)
             training = parser().parse_args(['--tiny', '--device', 'cpu', '--data', str(root),
                                             '--word-data', str(words), '--output', str(output), '--steps', '1',
+                                            '--source-copy', '--sampling', 'balanced',
                                             '--batch-size', '2', '--max-length', '24', '--checkpoint-selection', 'final'])
             flags = ['--checkpoint', str(output), '--data', str(root), '--device', 'cpu',
                      '--split', 'test', '--max-new-tokens', '8', '--limit', '0']
@@ -195,6 +238,10 @@ class JointRewriterTests(unittest.TestCase):
             self.assertTrue(trained['fuse_stage_outputs'])
             self.assertTrue(trained['candidate_guidance'])
             self.assertTrue(metrics['candidate_guidance'])
+            self.assertTrue(trained['source_copy'])
+            self.assertTrue(metrics['source_copy'])
+            self.assertEqual(trained['real_examples_seen'], 1)
+            self.assertEqual(trained['synthetic_examples_seen'], 1)
             self.assertEqual(trained['validation_cross_entropy'], trained['validation_cross_entropy_by_depth']['deep'])
             self.assertEqual(trained['prediction_stage_layers'], [1, 2, 4, 6])
             self.assertEqual(metrics['prediction_stage_layers'], [1, 2, 4, 6])

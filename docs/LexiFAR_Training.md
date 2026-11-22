@@ -17,9 +17,11 @@ Each block has normalization and a residual path. Token, position and source/tar
 
 ## Conditional generation
 
-Sentence training uses `[BOS] source [EOS] [BOS] target [EOS]`. Only target tokens contribute to shifted cross-entropy for the auxiliary prediction after block 4 and for the fused prediction. The word loss comes from a separate batch of contextual word labels in the same optimizer step. Source-only word guidance is fused before the second LSTM, the Transformers and the Mamba blocks. Attention is causal, and the LSTM is unidirectional. Right padding is masked from the loss and recurrent state updates.
+Sentence training uses `[BOS] source [EOS] [BOS] target [EOS]`. Only target tokens contribute to the shifted token loss for the auxiliary prediction after block 4 and for the fused prediction. The word loss comes from a separate batch of contextual word labels in the same optimizer step. Source-only word guidance is fused before the second LSTM, the Transformers and the Mamba blocks. Attention is causal, and the LSTM is unidirectional. Right padding is masked from the loss and recurrent state updates.
 
-Generation consumes the source prefix and greedily predicts target tokens. LSTM and Mamba states are cached; Transformer blocks retain their past normalized states. The returned sequence begins with an initial BOS marker that is excluded from generated-token counts. Sampling and beam search are not implemented.
+With `source_copy` enabled, the fused prediction learns a per-token gate between the vocabulary distribution and attention over preceding or current source tokens. The copy distribution sums mass at repeated token IDs and excludes sentence markers, padding and target tokens. P4 minimizes the negative log probability of the reference token under the mixture.
+
+Generation consumes the source prefix and greedily predicts target tokens. LSTM and Mamba states, the Transformers' past normalized states and the copy head's source positions are cached. The returned sequence begins with an initial BOS marker that is excluded from generated-token counts.
 
 The Mamba module is the plain-PyTorch Mamba-1 reference recurrence, not an optimized official CUDA kernel. No speed or numerical-parity claim is made. Transformer attention remains quadratic.
 
@@ -44,43 +46,46 @@ Run commands yourself from the repository root. Project code is not executed by 
 .\.venv\Scripts\python.exe scripts/train_six_layer.py
 ```
 
-The launcher reads `configs/six_layer_experiment.json` and checks the generator and data fingerprints before training. It uses width 192, four attention heads, feed-forward width 768, dropout 0.1, batch 16, LR 3e-4, seed 42, source/target limits of 192 tokens and up to 2,000 joint updates. Sentence batches are drawn from shuffled epochs and word batches are sampled from the training word corpus. Sentence truncation is rejected.
+The launcher reads `configs/six_layer_experiment.json` and checks the generator and data fingerprints before training. It uses width 192, four attention heads, feed-forward width 768, dropout 0.1, batch 16, LR 3e-4, seed 42, source/target limits of 192 tokens and up to 2,000 joint updates. Sentence truncation is rejected.
 
-To compare the updated initialization with the saved November 21 run, start a fresh run with the same configuration in a separate directory. Compare the raw generations on the same 98 validation examples with the copy-input baseline, including the four examples containing numeric strings.
-
-```powershell
-$python = '.\.venv\Scripts\python.exe'
-$run = 'runs/six_layer_joint_v4_embscale'
-& $python scripts/train_six_layer.py --output $run
-& $python -m academic_rewriter.test --checkpoint $run --split validation --limit 0
-```
+The default uses balanced sentence batches of eight real revisions and eight synthetic pairs and samples a separate batch from the word corpus. Within each sentence batch, examples are sampled without replacement from their respective groups. Across updates, they can recur. An odd sentence batch allocates the extra pair to real revisions. `result.json` records the number of real and synthetic pairs seen across all updates.
 
 Each update prints the step, total loss, 20-step moving average, auxiliary P3 cross-entropy, fused P4 cross-entropy, mean word cross-entropy, learning rate and elapsed time. `--log-every 10` changes the terminal interval to ten updates. The trainer records every step in `training_progress.jsonl` and reports when validation starts and finishes.
 
 Validation runs every 250 updates and monitors the fused final token cross-entropy. The best-validation checkpoint includes step zero, and early stopping follows four unimproved checks. The checkpoint directory stores `weights.pt`, the tokenizer and a config with the saved stage layout, fusion and candidate guidance settings. The training and validation logs record auxiliary losses where labels are available.
 
-The default config passes `--overwrite` and reruns training in `runs/six_layer_joint_v4`. Use `--output` to choose the directory to write. The trainer publishes `result.json` after it saves the weights and logs, marking the run ready for evaluation.
+The default config passes `--overwrite` and reruns training in `runs/six_layer_joint_v5_copy`. Use `--output` to choose the directory to write. The trainer publishes `result.json` after it saves the weights and logs, marking the run ready for evaluation.
 
-`--init-checkpoint` on `academic_rewriter.run` continues the saved architecture and tokenizer with a fresh optimizer and writes to a different directory. A joint continuation requires the saved word replacement vocabulary. Existing single-depth checkpoints remain available in their original mode.
+`--init-checkpoint` on `academic_rewriter.run` continues the saved architecture and tokenizer with a fresh optimizer and writes to a different directory. A joint continuation requires the saved word replacement vocabulary and source-copy setting. Start a fresh joint run with `--source-copy` to learn the copy head. Legacy checkpoints load the vocabulary-only output head.
 
 ## Evaluate the entire split
 
 ```powershell
-.\.venv\Scripts\python.exe -m academic_rewriter.test --checkpoint runs/six_layer_joint_v4 --split validation --batch-size 8 --max-new-tokens 192 --limit 0
-.\.venv\Scripts\python.exe -m academic_rewriter.test --checkpoint runs/six_layer_joint_v4 --split test --batch-size 8 --max-new-tokens 192 --limit 0
+.\.venv\Scripts\python.exe -m academic_rewriter.test --checkpoint runs/six_layer_joint_v5_copy --split validation --batch-size 8 --max-new-tokens 192 --limit 0
+.\.venv\Scripts\python.exe -m academic_rewriter.test --checkpoint runs/six_layer_joint_v5_copy --split test --batch-size 8 --max-new-tokens 192 --limit 0
 ```
 
 The default data directory is `data/academic-pairs-v1`. A zero limit evaluates every row: 98 validation cases or 87 test cases. Only completed checkpoints with `result.json`, `six_layer_config.json`, `tokenizer/` and `weights.pt` can be evaluated.
 
 Each command writes `CHECKPOINT/evaluation/SPLIT-192/predictions.csv`, `predictions.jsonl` and `metrics.json`. With a fused checkpoint, each row aligns the source, human reference and final `prediction`. JSONL adds observed budget hits and source/reference truncation. A budget hit alone does not prove a sentence is incomplete.
 
+Start the qualitative review with the LayoutLM preposition edit and the corpus description reporting 7,000 documents. Check that the raw generation retains the model name, technical relationships and number while making the local edit.
+
+```powershell
+$ids = '00a677997fbda9ac', '4766dceaeff49be0'
+Get-Content runs/six_layer_joint_v5_copy/evaluation/validation-192/predictions.jsonl -Encoding UTF8 |
+    ForEach-Object { ConvertFrom-Json -InputObject $_ } |
+    Where-Object { $_.id -in $ids } |
+    Format-List source,reference,prediction
+```
+
 Repeated evaluation replaces files in its selected output directory. Pass `--output runs/evaluation_v2` to preserve an earlier evaluation. Checkpoints and predictions are local runtime artifacts and are ignored by Git.
 
 To measure the effect of the replacement vectors, train a position-only checkpoint with the same data and seed, then evaluate it with the same decode settings. `metrics.json` records `candidate_guidance`.
 
 ```powershell
-.\.venv\Scripts\python.exe scripts/train_six_layer.py --word-guidance position --output runs/six_layer_joint_v4_position
-.\.venv\Scripts\python.exe -m academic_rewriter.test --checkpoint runs/six_layer_joint_v4_position --split test --limit 0
+.\.venv\Scripts\python.exe scripts/train_six_layer.py --word-guidance position --output runs/six_layer_joint_v5_copy_position
+.\.venv\Scripts\python.exe -m academic_rewriter.test --checkpoint runs/six_layer_joint_v5_copy_position --split test --limit 0
 ```
 
 ## Data reproduction and checks
@@ -93,7 +98,7 @@ The existing data and generator hashes are frozen. The following generator comma
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts/verify_integrity.ps1
 ```
 
-For a changed corpus, use a new configuration and output directory that point to its new manifest. Tests cover causal isolation, candidate alignment and gradients, cached/full-logit agreement, padding, target-only loss, checkpoint reload and continuation, full prediction exports and synthetic-data isolation. These commands remain pending until the user runs them.
+For a changed corpus, use a new configuration and output directory that point to its new manifest. Tests cover causal isolation, source copy probabilities, candidate alignment and gradients, cached/full-logit agreement, padding, balanced sampling, target-only loss, checkpoint reload and continuation, full prediction exports and synthetic-data isolation. These commands remain pending until the user runs them.
 
 ## Evidence boundaries
 

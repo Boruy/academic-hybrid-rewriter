@@ -78,6 +78,18 @@ def run(args):
         raise ValueError('Sentence validation requires a nonsynthetic held-out split')
     train=all_train[:args.train_limit] if args.train_limit else all_train
     val=validation[:args.val_limit] if args.val_limit else validation
+    fixed_rows = train[:args.batch_size]
+    if args.sampling == 'balanced':
+        real_train = [row for row in train if not row.get('synthetic')]
+        synthetic_train = [row for row in train if row.get('synthetic')]
+        real_per_batch = (args.batch_size + 1) // 2
+        synthetic_per_batch = args.batch_size // 2
+        if not synthetic_per_batch:
+            raise ValueError('Balanced sampling requires a batch size of at least 2')
+        if len(real_train) < real_per_batch or len(synthetic_train) < synthetic_per_batch:
+            raise ValueError(f'Balanced sampling needs {real_per_batch} real and '
+                             f'{synthetic_per_batch} synthetic training pairs per batch')
+        fixed_rows = real_train[:real_per_batch] + synthetic_train[:synthetic_per_batch]
     parent=None
     if args.init_checkpoint:
         parent=Path(args.init_checkpoint)
@@ -91,7 +103,11 @@ def run(args):
             raise ValueError(f'Continuation requires the saved depth ({six_config.depth})')
         if args.word_guidance is not None and (args.word_guidance == 'candidates') != six_config.candidate_guidance:
             raise ValueError('Continuation requires the saved word guidance')
+        if args.source_copy is not None and args.source_copy != six_config.source_copy:
+            raise ValueError('Continuation requires the saved source-copy setting')
     depth = six_config.depth if parent else args.depth or 'joint'
+    if args.source_copy and depth != 'joint':
+        raise ValueError('Source copying requires joint training')
     word_rows = []
     word_hash = None
     replacements = {}
@@ -114,7 +130,8 @@ def run(args):
             pad_token_id=tokenizer.pad_token_id,bos_token_id=tokenizer.bos_token_id,
             eos_token_id=tokenizer.eos_token_id,depth=depth,word_replacements=replacements,
             prediction_stages=4 if depth == 'joint' else 3, fuse_stage_outputs=depth == 'joint',
-            candidate_guidance=depth == 'joint' and args.word_guidance != 'position')
+            candidate_guidance=depth == 'joint' and args.word_guidance != 'position',
+            source_copy=bool(args.source_copy))
     tokenizer.padding_side='right'; tokenizer.save_pretrained(out/'tokenizer')
     six_config.save(out/'six_layer_config.json');model=SixLayerRewriter(six_config)
     if parent:
@@ -132,7 +149,6 @@ def run(args):
     word_rng = random.Random(args.seed + 1)
     optimizer=torch.optim.AdamW([p for p in model.parameters() if p.requires_grad],lr=args.lr)
     scheduler=torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer,mode='min',factor=args.lr_drop_factor,patience=args.lr_patience,threshold=.001,threshold_mode='rel',min_lr=args.min_lr) if args.lr_scheduler=='plateau' else None
-    fixed_rows = train[:args.batch_size]
 
     def train_objective(inputs, words):
         sentence = model.sequence_losses(**inputs)
@@ -200,14 +216,20 @@ def run(args):
     progress_path.write_text('',encoding='utf8')
     if args.eval_every or args.checkpoint_selection=='best-validation': record_validation(0)
     order=[]; completed_epochs=0; examples_seen=0
+    real_examples_seen = 0
     for step in range(args.steps):
         model.train()
-        if args.sampling=='shuffle-epochs':
+        if args.sampling == 'balanced':
+            chosen = random.sample(real_train, real_per_batch)
+            chosen.extend(random.sample(synthetic_train, synthetic_per_batch))
+            random.shuffle(chosen)
+        elif args.sampling=='shuffle-epochs':
             if not order:
                 order=list(range(len(train))); random.shuffle(order); completed_epochs+=1
             chosen=[train[index] for index in order[:args.batch_size]]; del order[:args.batch_size]
         else: chosen=random.sample(train,min(args.batch_size,len(train)))
         examples_seen+=len(chosen)
+        real_examples_seen += sum(not row.get('synthetic') for row in chosen)
         words = word_rng.sample(word_examples, min(args.batch_size, len(word_examples)))
         optimizer.zero_grad(set_to_none=True)
         b=batch(chosen,tokenizer,device,args.max_length,word_task)
@@ -259,7 +281,10 @@ def run(args):
         backend='reference',layer_layout=list(model.layer_layout),sequence_layers=6,
         rewrite_depth=six_config.depth,active_sequence_layers=model.active_layer_count,
         active_layer_layout=list(model.layer_layout[:model.active_layer_count]),
-        conditional_generation='causal source prefix; target-only token loss',
+        conditional_generation='causal source prefix with source copying and target-only token loss'
+        if six_config.source_copy else 'causal source prefix; target-only token loss',
+        source_copy=six_config.source_copy, real_examples_seen=real_examples_seen,
+        synthetic_examples_seen=examples_seen-real_examples_seen,
         experiment_type='pipeline smoke test, not a quality comparison' if args.tiny else 'six-layer synthetic-augmented exploratory training',
         cross_entropy_comparability='Compare CE only when tokenization and evaluation protocol match.')
     if not parent:
@@ -311,6 +336,8 @@ def parser():
     p.add_argument('--word-loss-weight', type=float, default=.25, help='Weight on the joint single-word cross-entropy')
     p.add_argument('--word-guidance', choices=['position', 'candidates'],
                    help='Fresh joint runs default to candidates; continuations use the saved setting')
+    p.add_argument('--source-copy', action=argparse.BooleanOptionalAction,
+                   help='Mix source copying into P4. Continuations use the saved setting.')
     p.add_argument('--d-model',type=int,default=192,help='Six-layer hidden width')
     p.add_argument('--attention-heads',type=int,default=4,help='Six-layer attention head count')
     p.add_argument('--ffn-dim',type=int,default=768,help='Six-layer Transformer feed-forward width')
@@ -323,7 +350,8 @@ def parser():
     p.add_argument('--init-checkpoint',help='Initialize matching model, tokenizer and config from local weights; start a new optimizer')
     p.add_argument('--checkpoint-selection',choices=['final','best-validation'],default='best-validation',help='Best validation includes step 0, so a harmful continuation can select unchanged parent weights')
     p.add_argument('--early-stopping-patience',type=int,default=0,help='Stop after this many unimproved validation checks; 0 disables')
-    p.add_argument('--sampling',choices=['random-batches','shuffle-epochs'],default='shuffle-epochs')
+    p.add_argument('--sampling', choices=['random-batches', 'shuffle-epochs', 'balanced'],
+                   default='shuffle-epochs', help='Balanced batches use half real pairs, rounded up')
     p.add_argument('--reject-truncation',action='store_true')
     p.add_argument('--overwrite',action='store_true',help='Explicitly allow replacing an existing output checkpoint')
     return p
