@@ -1,0 +1,32 @@
+{
+  "study": "six-layer-joint-v8-span-edits",
+  "data": "data/academic-pairs-v1",
+  "output": "runs/six_layer_joint_v8_spans",
+  "model": "six_layer",
+  "layer_layout": ["lstm", "lstm", "transformer", "transformer", "mamba", "mamba"],
+  "word_data_sha256": "d444de7f7e4497d57d22cb30c0af20848bb71332f3389bc7b27ffad9a8fdf752",
+  "grammar_data_sha256": "2798cf670ed3d251ace6fd9106caf8209023aeeaae78808d092f3e6888da0296",
+  "settings": {
+    "init_checkpoint": "runs/six_layer_joint_v7_grammar",
+    "depth": "joint",
+    "word_data": "data/word-formality-v1/train.jsonl",
+    "word_loss_weight": 0.25,
+    "word_guidance": "candidates",
+    "source_copy": true,
+    "contextual_edits": true,
+    "span_edits": true,
+    "grammar_data": "data/grammar-edits-v1/train.jsonl",
+    "grammar_pairs_per_batch": 2,
+    "steps": 1000,
+    "batch_size": 16,
+    "max_length": 192,
+    "lr": 0.00015,
+    "seed": 42,
+    "eval_every": 200,
+    "log_every": 10,
+    "sampling": "balanced",
+    "checkpoint_selection": "final",
+    "reject_truncation": true
+  },
+  "evaluation": "Inspect assembled predictions and character-offset edits. Unselected source spans are copied verbatim."
+}

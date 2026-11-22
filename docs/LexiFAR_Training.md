@@ -33,7 +33,7 @@ The Mamba module is the plain-PyTorch Mamba-1 reference recurrence, not an optim
 
 Synthetic examples use 48 authored semantic frames across 24 technical domains, with shared facts, hypothetical quantities and protected terms. Records retain generator IDs, slots, hashes and the flags `synthetic=true`, `human_verified=false`, `split=train`. Automated quantity, negation, scope and uncertainty guards do not establish independent semantic validity. Synthetic examples never enter validation or test.
 
-The byte-level BPE tokenizer is fitted to sentence and word training text with a full byte alphabet and a 4,096-token vocabulary limit. The model starts from random weights. `--tiny` uses a small model and word-level tokenizer for pipeline checks. Cross-entropy is comparable only when the tokenizer and evaluation protocol match.
+The byte-level BPE tokenizer is fitted to sentence and word training text with a full byte alphabet and a 4,096-token vocabulary limit. The default model starts from random weights. `--tiny` uses smaller model dimensions for pipeline checks. Tiny plain sentence models use a word-level tokenizer and span-edit models use byte-level BPE. Cross-entropy is comparable only when the tokenizer, target representation and evaluation protocol match.
 
 Fresh training initializes the token, absolute-position and source/target segment embeddings at a standard deviation of 0.02 before adding them together. The padding token starts at zero. A fresh run records `fresh_input_embedding_std` in `result.json`. Loading a checkpoint or continuing training restores all three learned tables from its saved weights.
 
@@ -76,6 +76,22 @@ $run = 'runs/six_layer_joint_v7_grammar'
 ```
 
 Compare `evaluation/validation-192/predictions.csv` with the v6 file by ID. Inspect `065afd42f64dbb51` for the expression about physical appearance, `00a677997fbda9ac` for the preposition after `incorporate`, and `bb11df8bbef966fe` for the missing `of`. Check complete words, scientific meaning and necessary edits in the raw text. The v7 training run and this review are pending.
+
+## Whole-word span editing
+
+The v8 experiment adapts the completed `runs/six_layer_joint_v7_grammar` checkpoint and writes an independent checkpoint to `runs/six_layer_joint_v8_spans`. Adaptation reuses the parent model and tokenizer and initializes 193 new embedding rows for edit boundaries. The continuation uses 1,000 updates with a fresh optimizer and the same sentence and grammar sampling recipe as v7.
+
+P4 learns ordered edit records from the existing training references. All untouched source spans are copied verbatim. Whole words may be replaced, deleted or preceded by an insertion. The renderer retains the source and records `edit_error` if the program is incomplete, has an invalid range or would join words across the edit boundary. For references with too many separate edits for the target budget, training can encode one edit spanning the source. The current 12,740 pairs fit as aligned edits with the v7 tokenizer.
+
+```powershell
+$python = '.\.venv\Scripts\python.exe'
+$run = 'runs/six_layer_joint_v8_spans'
+& $python -m unittest discover -s tests -p 'test_span_edits.py' -v
+& $python scripts/train_six_layer.py --config configs/six_layer_span_edits.json
+& $python -m academic_rewriter.test --checkpoint $run --split validation --max-new-tokens 194 --limit 0
+```
+
+To start from the completed v6 model, add `--init-checkpoint runs/six_layer_joint_v6_edits --output runs/six_layer_joint_v8_from_v6` to the training command. Compare the source, reference and assembled prediction in `evaluation/validation-194/predictions.csv`. The JSONL records `edits` with source character offsets and `edit_error`. Inspect those fields to distinguish a deliberate retain decision from an invalid attempt. Tests, training and qualitative comparison remain pending.
 
 ## Evaluate the entire split
 

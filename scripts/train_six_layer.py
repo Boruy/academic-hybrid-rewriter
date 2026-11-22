@@ -13,6 +13,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--config', default='configs/six_layer_experiment.json')
     parser.add_argument('--output', help='Checkpoint directory (overwritten with the default config)')
+    parser.add_argument('--init-checkpoint', help='Override the initial checkpoint in the experiment config')
     parser.add_argument('--depth', choices=['joint', 'medium', 'deep'],
                         help='Default is joint; medium and deep train a single output')
     parser.add_argument('--word-guidance', choices=['position', 'candidates'],
@@ -40,11 +41,14 @@ def main():
             if any(json.loads(line).get('synthetic') for line in path.read_text(encoding='utf8').splitlines()):
                 raise ValueError('Synthetic data cannot enter held-out sets')
     settings = dict(config['settings'], model=config['model'], data=config['data'], output=config['output'])
+    if args.init_checkpoint:
+        settings['init_checkpoint'] = args.init_checkpoint
     if args.depth:
         settings['depth'] = args.depth
         if args.depth != 'joint':
             settings.pop('source_copy', None)
             settings.pop('contextual_edits', None)
+            settings.pop('span_edits', None)
     if args.word_guidance:
         settings['word_guidance'] = args.word_guidance
     if args.log_every is not None:

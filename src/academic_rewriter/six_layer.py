@@ -16,6 +16,7 @@ from torch.nn.utils.rnn import pack_padded_sequence, pad_packed_sequence
 from transformers.modeling_outputs import CausalLMOutput
 
 from .models import ReferenceMamba
+from .span_edits import EditProgramDecoder
 
 NEURAL_DEPTHS = {'medium': 4, 'deep': 6}
 CHECKPOINT_DEPTHS = ('joint', *NEURAL_DEPTHS)
@@ -53,6 +54,7 @@ class SixLayerConfig:
     candidate_guidance: bool = False
     source_copy: bool = False
     contextual_edits: bool = False
+    span_edits: bool = False
 
     def __post_init__(self):
         if self.depth not in CHECKPOINT_DEPTHS:
@@ -65,6 +67,8 @@ class SixLayerConfig:
             raise ValueError('Final feature fusion requires four prediction stages')
         if self.source_copy and not self.fuse_stage_outputs:
             raise ValueError('Source copying requires the fused final prediction')
+        if self.span_edits and not self.fuse_stage_outputs:
+            raise ValueError('Span edits require the fused final prediction')
         if self.contextual_edits and not self.source_copy:
             raise ValueError('Contextual edit guidance requires source copying')
         if self.candidate_guidance and (self.prediction_stages != 4 or not self.replacement_labels):
@@ -75,9 +79,17 @@ class SixLayerConfig:
             raise ValueError('Invalid attention heads or position capacity')
         if not 0 <= self.dropout < 1:
             raise ValueError('Dropout must be in [0, 1)')
-        if any(not 0 <= token < self.vocab_size for token in
+        if any(not 0 <= token < self.text_vocab_size for token in
                [self.pad_token_id, self.bos_token_id, self.eos_token_id]):
             raise ValueError('Special token outside vocabulary')
+
+    @property
+    def edit_position_count(self):
+        return self.max_positions // 2 if self.span_edits else 0
+
+    @property
+    def text_vocab_size(self):
+        return self.vocab_size - self.edit_position_count
 
     @property
     def replacement_labels(self):
@@ -293,7 +305,10 @@ class SixLayerRewriter(nn.Module):
         else:
             projected = self._prediction_features(hidden, layer)
         features = norm(projected)
-        return features, F.linear(features, self.token_embedding.weight)
+        vocabulary = self.token_embedding.weight
+        if self.config.span_edits and depth != 'deep':
+            vocabulary = vocabulary[:self.config.text_vocab_size]
+        return features, F.linear(features, vocabulary)
 
     def _copy_bias(self, word_guidance):
         if not self.config.contextual_edits or word_guidance is None:
@@ -477,7 +492,7 @@ class SixLayerRewriter(nn.Module):
             hidden = self._encode(hidden, mask, start, stop, guidance, stage_features=stage_features)
             logits = self._sequence_projection(hidden, depth, stage_features, tokens, mask, segments, guidance)
             loss_fn = F.nll_loss if self.copy_head is not None and depth == 'deep' else F.cross_entropy
-            next_logits = logits[:, :-1].reshape(-1, self.config.vocab_size)
+            next_logits = logits[:, :-1].reshape(-1, logits.size(-1))
             if weights is not None and depth == 'deep':
                 token_loss = loss_fn(next_logits, expected, ignore_index=-100, reduction='none')
                 loss = (token_loss * weights).sum() / weights.sum()
@@ -487,15 +502,24 @@ class SixLayerRewriter(nn.Module):
             start = stop
         return outputs
 
-    def sequence_losses(self, input_ids, attention_mask, labels, word_guidance=None, label_weights=None):
-        """Compute the sentence objectives with a single pass through the shared blocks."""
+    def sequence_losses(self, input_ids, attention_mask, labels, word_guidance=None, label_weights=None,
+                        edit_labels=None):
+        """Compute the auxiliary sentence and final rewrite objectives."""
+        if self.config.span_edits:
+            return {depth: self(input_ids, attention_mask, labels, depth=depth, word_guidance=word_guidance,
+                                label_weights=label_weights, edit_labels=edit_labels).loss
+                    for depth in self.sentence_depths}
         outputs = self._labeled_outputs(input_ids, attention_mask, labels, self.sentence_depths,
                                         word_guidance, label_weights)
         return {depth: output.loss for depth, output in outputs.items()}
 
     def forward(self, input_ids, attention_mask, labels=None, *, depth=None, word_guidance=None,
-                label_weights=None, **kwargs):
+                label_weights=None, edit_labels=None, **kwargs):
         depth = self._resolve_depth(depth)
+        if self.config.span_edits and depth == 'deep' and (labels is not None or edit_labels is not None):
+            if edit_labels is None or label_weights is not None:
+                raise ValueError('The final span-edit loss requires edit labels without sentence token weights')
+            labels = edit_labels
         if labels is None:
             return CausalLMOutput(logits=self.sequence_logits(input_ids, attention_mask, depth=depth,
                                                             word_guidance=word_guidance))
@@ -536,7 +560,8 @@ class SixLayerRewriter(nn.Module):
 
     @torch.no_grad()
     def generate(self, input_ids, attention_mask, max_new_tokens=128, num_beams=1,
-                 do_sample=False, early_stopping=False, *, depth=None, word_guidance=None, **kwargs):
+                 do_sample=False, early_stopping=False, *, depth=None, word_guidance=None,
+                 edit_unit_counts=None, **kwargs):
         depth = self._resolve_depth(depth)
         if self.final_fusion is not None and depth != 'deep':
             raise ValueError('This checkpoint generates only the fused final rewrite')
@@ -549,6 +574,14 @@ class SixLayerRewriter(nn.Module):
         lengths = mask.sum(1)
         if int(lengths.max()) + max_new_tokens > self.config.max_positions:
             raise ValueError('Requested generation exceeds position capacity')
+        decoder = None
+        if self.config.span_edits:
+            if edit_unit_counts is None or max_new_tokens < 2:
+                raise ValueError('Span edits require source word counts and at least two generation tokens')
+            decoder = EditProgramDecoder(self.config, edit_unit_counts, input_ids.device)
+            if decoder.counts.shape != lengths.shape or not (
+                    (decoder.counts >= 0) & (decoder.counts < self.config.edit_position_count)).all():
+                raise ValueError('Expected one supported edit word count per source')
         states = [None] * NEURAL_DEPTHS[depth]
         logits = self.token_embedding.weight.new_zeros(input_ids.size(0), self.config.vocab_size)
         positions = mask.long().cumsum(1) - 1
@@ -562,8 +595,12 @@ class SixLayerRewriter(nn.Module):
         # Match the evaluator's start-token convention; this first token is excluded from counts.
         output = [torch.full_like(lengths, self.config.bos_token_id)]
         for index in range(max_new_tokens):
-            logits[:, self.config.pad_token_id] = -torch.inf
-            token = logits.argmax(-1).masked_fill(finished, self.config.pad_token_id)
+            if decoder is None:
+                logits[:, self.config.pad_token_id] = -torch.inf
+                token = logits.argmax(-1)
+            else:
+                token = decoder.choose(logits, first=index == 0, remaining=max_new_tokens - index)
+            token = token.masked_fill(finished, self.config.pad_token_id)
             output.append(token)
             finished = finished | (token == self.config.eos_token_id)
             if finished.all():

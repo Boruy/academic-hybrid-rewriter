@@ -9,8 +9,8 @@ import torch
 from .evaluate import evaluate
 from .joint_words import WordTask
 from .lexical import evaluate_lexical, read_lexical_evaluation
-from .rewrite import load_checkpoint
-from .run import batch, read_rows
+from .rewrite import generate_predictions, load_checkpoint
+from .run import batch, read_rows, target_token_count
 from .six_layer import NEURAL_DEPTHS, WORD_LAYERS
 
 
@@ -73,6 +73,8 @@ def run(args):
         raise ValueError('Empty evaluation split')
     device = torch.device(args.device or ('cuda' if torch.cuda.is_available() else 'cpu'))
     model, tokenizer, meta = load_checkpoint(root, device)
+    if model.config.span_edits and args.max_new_tokens < 2:
+        raise ValueError('Span edits require a generation budget of at least two tokens')
     max_length = meta['max_length']
     fused = model.config.fuse_stage_outputs
     depths = ('deep',) if fused else model.sentence_depths
@@ -90,7 +92,7 @@ def run(args):
     predictions = {depth: [] for depth in depths}
     shallow_predictions = []
     numerators = dict.fromkeys(depths, 0.)
-    denominator = 0
+    denominators = dict.fromkeys(depths, 0)
     columns = (['id', 'source', 'reference', 'shallow_prediction', 'medium_prediction', 'deep_prediction']
                if compare_depths else ['id', 'source', 'prediction', 'reference'])
     with (
@@ -101,33 +103,32 @@ def run(args):
         comparison.writeheader()
         for i in range(0, len(rows), args.batch_size):
             chosen = rows[i:i+args.batch_size]
-            inputs = batch(chosen, tokenizer, device, max_length, sentence_word_task)
-            tokens = (inputs['labels']!=-100).sum().item()
-            denominator += tokens
+            inputs = batch(chosen, tokenizer, device, max_length, sentence_word_task, model_config=model.config)
             losses = {'deep': model(**inputs).loss} if fused else model.sequence_losses(**inputs)
             for name, loss in losses.items():
+                tokens = target_token_count(inputs, name)
                 numerators[name] += loss.item()*tokens
+                denominators[name] += tokens
+            sources = [row['source'] for row in chosen]
             generated = {}
             for depth in depths:
-                sequences = model.generate(input_ids=inputs['input_ids'], attention_mask=inputs['attention_mask'],
-                                           max_new_tokens=args.max_new_tokens, depth=depth,
-                                           word_guidance=inputs.get('word_guidance'))
-                generated[depth] = list(zip(tokenizer.batch_decode(sequences, skip_special_tokens=True),
-                                            sequences.tolist(), strict=True))
-            shallow = word_task.rewrite_many([row['source'] for row in chosen]) if compare_depths else None
+                generated[depth] = generate_predictions(model, tokenizer, sources, inputs, args.max_new_tokens,
+                                                        depth=depth)
+            shallow = word_task.rewrite_many(sources) if compare_depths else None
             for j, row in enumerate(chosen):
                 base = dict(id=row['id'], source=row['source'], reference=row['target'])
                 result = base.copy()
                 for depth in depths:
-                    prediction, sequence = generated[depth][j]
+                    decoded, sequence = generated[depth][j]
+                    prediction = decoded['prediction']
                     diagnostics = generation_diagnostics(sequence, tokenizer, row['source'], row['target'],
                                                          max_length, args.max_new_tokens)
-                    predictions[depth].append(dict(base, prediction=prediction, **diagnostics))
+                    predictions[depth].append(dict(base, **decoded, **diagnostics))
                     if compare_depths:
                         result[f'{depth}_prediction'] = prediction
                         result[f'{depth}_diagnostics'] = diagnostics
                     else:
-                        result.update(prediction=prediction, **diagnostics)
+                        result.update(decoded, **diagnostics)
                 if compare_depths:
                     prediction, edits = shallow[j]
                     shallow_predictions.append(dict(base, prediction=prediction, edit_count=len(edits)))
@@ -137,9 +138,10 @@ def run(args):
                 comparison.writerow({field: result[field] for field in columns})
             stream.flush()
             csv_stream.flush()
-            average = sum(numerators.values()) / (len(numerators) * denominator)
+            loss_by_depth = {name: numerators[name] / denominators[name] for name in depths}
+            average = sum(loss_by_depth.values()) / len(loss_by_depth)
             print(f'[{args.split} {i + len(chosen)}/{len(rows)}] cross_entropy={average:.4f}', flush=True)
-    by_depth = {depth: sentence_metrics(predictions[depth], depth, numerators[depth]/denominator)
+    by_depth = {depth: sentence_metrics(predictions[depth], depth, loss_by_depth[depth])
                 for depth in depths}
     if compare_depths:
         copy = evaluate([dict(row, prediction=row['source']) for row in shallow_predictions])
@@ -154,13 +156,14 @@ def run(args):
         if fused:
             metrics.update(fuse_stage_outputs=True, candidate_guidance=model.config.candidate_guidance,
                            source_copy=model.config.source_copy, contextual_edits=model.config.contextual_edits,
+                           span_edits=model.config.span_edits,
                            prediction_stage_layers=list(model.prediction_stage_layers),
                            copy_baseline=evaluate([dict(row, prediction=row['source']) for row in predictions['deep']]))
             if word_rows is not None:
                 metrics['word_test'] = evaluate_lexical(word_task, word_rows)
     metrics.update(checkpoint=str(root.resolve()), split=args.split, device=str(device),
                    rewrite_depth='final' if fused else model.config.depth, active_sequence_layers=model.active_layer_count,
-                   cross_entropy=sum(numerators.values()) / (len(numerators) * denominator), max_length=max_length,
+                   cross_entropy=average, max_length=max_length,
                    max_new_tokens=args.max_new_tokens, num_beams=1, do_sample=False,
                    word_guidance_enabled=sentence_word_task is not None,
                    test_set_used=args.split=='test')

@@ -1,12 +1,15 @@
 """Train the six-layer academic rewriter or continue a local checkpoint."""
 import argparse, hashlib, json, math, random, time
+from dataclasses import replace
 from pathlib import Path
 import torch
 from transformers import AutoTokenizer,PreTrainedTokenizerFast
 from tokenizers import Tokenizer,models,pre_tokenizers,trainers,processors,decoders
 from .joint_words import WordTask, edit_target_weights, word_replacements
 from .lexical import read_lexical_training
+from .rewrite import generate_predictions
 from .six_layer import CHECKPOINT_DEPTHS, SixLayerConfig, SixLayerRewriter
+from .span_edits import edit_labels
 
 def read_rows(path): return [json.loads(s) for s in Path(path).read_text(encoding='utf8').splitlines() if s.strip()]
 
@@ -36,15 +39,21 @@ def build_subword_tokenizer(rows,out):
     result=PreTrainedTokenizerFast(tokenizer_object=tok,pad_token='[PAD]',bos_token='[BOS]',eos_token='[EOS]',unk_token='[UNK]')
     result.save_pretrained(out); return result
 
-def _prepare_batch(rows, tokenizer, device, max_length, word_task=None, *, supervise_edits=False, edit_weight=1.):
+def _prepare_batch(rows, tokenizer, device, max_length, word_task=None, *, model_config=None,
+                   supervise_edits=False, edit_weight=1.):
     sources = [r['source'] for r in rows]
-    x=tokenizer(sources,padding=True,truncation=True,max_length=max_length,return_tensors='pt',
-                return_offsets_mapping=word_task is not None)
-    y = tokenizer([r['target'] for r in rows], padding=True, truncation=True, max_length=max_length,
-                  return_tensors='pt', return_offsets_mapping=edit_weight > 1.)
+    span_mode = model_config is not None and model_config.span_edits
+    limits = {} if span_mode else dict(truncation=True, max_length=max_length)
+    x = tokenizer(sources, padding=True, return_tensors='pt', return_offsets_mapping=word_task is not None, **limits)
+    y = tokenizer([r['target'] for r in rows], padding=True, return_tensors='pt',
+                  return_offsets_mapping=edit_weight > 1., **limits)
     labels = y['input_ids'].masked_fill(y['input_ids'] == tokenizer.pad_token_id, -100)
     inputs = {'input_ids':x['input_ids'].to(device),'attention_mask':x['attention_mask'].to(device),
               'labels':labels.to(device)}
+    if span_mode:
+        if max(x['input_ids'].size(1), labels.size(1)) > max_length:
+            raise ValueError('Span editing requires the complete source and reference within max-length')
+        inputs['edit_labels'] = edit_labels(rows, tokenizer, model_config, max_length).to(device)
     if edit_weight > 1.:
         inputs['label_weights'] = edit_target_weights(rows, y, edit_weight, tokenizer.eos_token_id).to(device)
     edit_loss = None
@@ -55,8 +64,13 @@ def _prepare_batch(rows, tokenizer, device, max_length, word_task=None, *, super
     return inputs, edit_loss
 
 
-def batch(rows, tokenizer, device, max_length, word_task=None):
-    return _prepare_batch(rows, tokenizer, device, max_length, word_task)[0]
+def batch(rows, tokenizer, device, max_length, word_task=None, *, model_config=None):
+    return _prepare_batch(rows, tokenizer, device, max_length, word_task, model_config=model_config)[0]
+
+
+def target_token_count(inputs, depth):
+    labels = inputs.get('edit_labels', inputs['labels']) if depth == 'deep' else inputs['labels']
+    return (labels != -100).sum().item()
 
 def run(args):
     if args.lr is None:
@@ -121,6 +135,8 @@ def run(args):
     if args.init_checkpoint:
         parent=Path(args.init_checkpoint)
         if parent.resolve()==out.resolve(): raise ValueError('Continuation output must differ from its parent')
+        if not (parent/'result.json').is_file():
+            raise ValueError(f'Finish training the initialization checkpoint first: {parent}')
         parent_meta=json.loads((parent/'result.json').read_text(encoding='utf8'))
         if parent_meta['model']!='six_layer':
             raise ValueError('Continuation requires a six-layer checkpoint')
@@ -134,7 +150,21 @@ def run(args):
             raise ValueError('Continuation requires the saved source-copy setting')
         if args.contextual_edits is not None and args.contextual_edits != six_config.contextual_edits:
             raise ValueError('Continuation requires the saved contextual-edit setting')
+        if args.span_edits is False and six_config.span_edits:
+            raise ValueError('Continue a span-edit checkpoint with span edits enabled')
     depth = six_config.depth if parent else args.depth or 'joint'
+    span_mode = bool(args.span_edits) or (six_config.span_edits if parent else False)
+    upgrade_spans = parent is not None and span_mode and not six_config.span_edits
+    generation_budget = args.max_length + (2 if span_mode else 0)
+    if span_mode:
+        if depth != 'joint' or (parent and not six_config.fuse_stage_outputs):
+            raise ValueError('Span edits require joint training with the fused final head')
+        if args.edit_target_weight != 1.:
+            raise ValueError('Span edits use edit records as P4 targets and require --edit-target-weight 1')
+        if parent and len(tokenizer) != six_config.text_vocab_size:
+            raise ValueError('Initialization checkpoint and tokenizer text vocabularies differ')
+        if parent and not isinstance(tokenizer.backend_tokenizer.decoder, decoders.ByteLevel):
+            raise ValueError('Span-edit continuation requires a byte-level tokenizer')
     if args.source_copy and depth != 'joint':
         raise ValueError('Source copying requires joint training')
     if not parent and args.contextual_edits and not args.source_copy:
@@ -149,27 +179,35 @@ def run(args):
         replacements = word_replacements(word_rows)
         if parent and replacements != six_config.word_replacements:
             raise ValueError('Continuation requires the saved word replacement vocabulary')
-    if parent and 2 * args.max_length > six_config.max_positions:
+    if parent and args.max_length + generation_budget > six_config.max_positions:
         raise ValueError('Continuation max-length exceeds saved position capacity')
     if args.overwrite:
         # A reader uses result.json to identify a completed checkpoint.
         result_path.unlink(missing_ok=True)
     (out/'run_args.json').write_text(json.dumps(vars(args),indent=2),encoding='utf8')
     if not parent:
-        tokenizer=(build_tokenizer if args.tiny else build_subword_tokenizer)(all_train + word_rows + grammar_rows,out/'tokenizer')
-        six_config=SixLayerConfig(vocab_size=len(tokenizer),d_model=32 if args.tiny else args.d_model,
+        build = build_tokenizer if args.tiny and not span_mode else build_subword_tokenizer
+        tokenizer = build(all_train + word_rows + grammar_rows, out/'tokenizer')
+        vocab_size = len(tokenizer) + (args.max_length + 1 if span_mode else 0)
+        six_config=SixLayerConfig(vocab_size=vocab_size,d_model=32 if args.tiny else args.d_model,
             attention_heads=args.attention_heads,ffn_dim=64 if args.tiny else args.ffn_dim,
             dropout=0. if args.tiny else args.dropout,max_positions=2*args.max_length+2,
             pad_token_id=tokenizer.pad_token_id,bos_token_id=tokenizer.bos_token_id,
             eos_token_id=tokenizer.eos_token_id,depth=depth,word_replacements=replacements,
             prediction_stages=4 if depth == 'joint' else 3, fuse_stage_outputs=depth == 'joint',
             candidate_guidance=depth == 'joint' and args.word_guidance != 'position',
-            source_copy=bool(args.source_copy), contextual_edits=bool(args.contextual_edits))
+            source_copy=bool(args.source_copy), contextual_edits=bool(args.contextual_edits), span_edits=span_mode)
+    elif upgrade_spans:
+        six_config = replace(six_config, span_edits=True, vocab_size=len(tokenizer) + six_config.max_positions // 2)
     tokenizer.padding_side='right'; tokenizer.save_pretrained(out/'tokenizer')
     six_config.save(out/'six_layer_config.json');model=SixLayerRewriter(six_config)
     if parent:
-        model.load_state_dict(torch.load(parent/'weights.pt',map_location='cpu',weights_only=True),strict=True)
-    if args.reject_truncation:
+        weights = torch.load(parent/'weights.pt', map_location='cpu', weights_only=True)
+        if upgrade_spans:
+            boundaries = model.token_embedding.weight.detach()[six_config.text_vocab_size:]
+            weights['token_embedding.weight'] = torch.cat((weights['token_embedding.weight'], boundaries))
+        model.load_state_dict(weights, strict=True)
+    if args.reject_truncation or span_mode:
         for split,rows in [('train',train),('validation',val)]:
             for row in rows:
                 for field in ['source','target']:
@@ -184,7 +222,7 @@ def run(args):
     scheduler=torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer,mode='min',factor=args.lr_drop_factor,patience=args.lr_patience,threshold=.001,threshold_mode='rel',min_lr=args.min_lr) if args.lr_scheduler=='plateau' else None
 
     def train_objective(rows, words):
-        inputs, edit_loss = _prepare_batch(rows, tokenizer, device, args.max_length, word_task,
+        inputs, edit_loss = _prepare_batch(rows, tokenizer, device, args.max_length, word_task, model_config=six_config,
                                           supervise_edits=True, edit_weight=args.edit_target_weight)
         sentence = model.sequence_losses(**inputs)
         loss = sum(sentence.values()) / len(sentence)
@@ -207,14 +245,16 @@ def run(args):
         return train_objective(fixed_rows, fixed_words)[0].item()
     @torch.no_grad()
     def validation_losses():
-        model.eval(); denominator=0
+        model.eval()
         numerators = dict.fromkeys(model.sentence_depths, 0.)
+        denominators = dict.fromkeys(model.sentence_depths, 0)
         for i in range(0,len(val),args.batch_size):
-            b=batch(val[i:i+args.batch_size],tokenizer,device,args.max_length,word_task)
-            tokens=(b['labels']!=-100).sum().item(); denominator+=tokens
+            b=batch(val[i:i+args.batch_size],tokenizer,device,args.max_length,word_task,model_config=six_config)
             for name, value in model.sequence_losses(**b).items():
+                tokens = target_token_count(b, name)
                 numerators[name] += value.item()*tokens
-        return {name: value/denominator for name, value in numerators.items()}
+                denominators[name] += tokens
+        return {name: value/denominators[name] for name, value in numerators.items()}
 
     def validation_score(by_depth):
         if six_config.fuse_stage_outputs:
@@ -311,10 +351,10 @@ def run(args):
     vl = validation_score(selected_validation)
     print(f'Validation cross-entropy: {vl:.4f}',flush=True)
     with torch.no_grad():
-        inp=batch(val[:2],tokenizer,device,args.max_length,word_task)
-        gen=model.generate(input_ids=inp['input_ids'],attention_mask=inp['attention_mask'],
-                           max_new_tokens=args.max_length,num_beams=1,word_guidance=inp.get('word_guidance'))
-    predictions=[dict(id=r['id'],source=r['source'],reference=r['target'],prediction=p) for r,p in zip(val[:2],tokenizer.batch_decode(gen,skip_special_tokens=True))]
+        inp=batch(val[:2],tokenizer,device,args.max_length,word_task,model_config=six_config)
+        generated = generate_predictions(model, tokenizer, [row['source'] for row in val[:2]], inp, generation_budget)
+    predictions = [dict(id=row['id'], source=row['source'], reference=row['target'], **prediction)
+                   for row, (prediction, _) in zip(val[:2], generated, strict=True)]
     result={'model':'six_layer','seed':args.seed,'steps':args.steps,'train_pairs':len(train),'validation_pairs':len(val),'max_length':args.max_length,'batch_size':args.batch_size,'learning_rate':args.lr,'fixed_train_batch_loss_before':initial,'fixed_train_batch_loss_after':final,'validation_cross_entropy':vl,'seconds_training':elapsed,'peak_cuda_allocated_mib':torch.cuda.max_memory_allocated()/1024**2 if device.type=='cuda' else None,'parameters':sum(p.numel() for p in model.parameters()),'trainable_parameters':sum(p.numel() for p in model.parameters() if p.requires_grad),'train_truncated_sources':sum(len(tokenizer(r['source'])['input_ids'])>args.max_length for r in train),'train_truncated_targets':sum(len(tokenizer(r['target'])['input_ids'])>args.max_length for r in train),'device':str(device),'gpu':torch.cuda.get_device_name(device) if device.type=='cuda' else None,'torch':torch.__version__,'test_set_used':False,'args':vars(args)}
     result.update(steps=actual_steps,requested_steps=args.steps,final_step_validation_cross_entropy=final_vl,checkpoint_selection=args.checkpoint_selection,selected_step=best_step if args.checkpoint_selection=='best-validation' else actual_steps,best_recorded_validation_cross_entropy=best_value,final_learning_rate=optimizer.param_groups[0]['lr'],lr_scheduler=args.lr_scheduler,seconds_validation=validation_seconds,sampling=args.sampling,examples_seen=examples_seen,dataset_equivalent_passes=examples_seen/len(train),optimizer_reinitialized=True,parent_checkpoint=str(parent) if parent else None,parent_weights_sha256=file_hash(parent/'weights.pt') if parent else None,data_sha256={split:file_hash(Path(args.data)/(split+'.jsonl')) for split in ['train','validation']})
     result.update(initialization=('local checkpoint: '+str(parent)) if parent else 'random six-layer model; training-only tokenizer',
@@ -350,7 +390,8 @@ def run(args):
             result['objective_weights']['source_edit'] = args.word_loss_weight
     manifest=Path(args.data)/'manifest.json'
     if manifest.exists():result['training_data_manifest_sha256']=file_hash(manifest)
-    result['validation_examples_max_new_tokens']=args.max_length
+    result.update(validation_examples_max_new_tokens=generation_budget, span_edits=six_config.span_edits,
+                  added_edit_boundary_embeddings=six_config.edit_position_count if upgrade_spans else 0)
     torch.save(model.state_dict(),out/'weights.pt')
     for name, data in [('training_log.json', log), ('validation_log.json', validation_history),
                        ('validation_examples.json', predictions)]:
@@ -365,7 +406,7 @@ def run(args):
 def parser():
     p=argparse.ArgumentParser(description=__doc__)
     p.add_argument('--model',choices=['six_layer'],default='six_layer')
-    p.add_argument('--tiny',action='store_true',help='Use a small model and word-level tokenizer for pipeline checks')
+    p.add_argument('--tiny',action='store_true',help='Use small model dimensions for pipeline checks')
     p.add_argument('--data',default='data/academic-pairs-v1')
     p.add_argument('--output',required=True)
     p.add_argument('--steps',type=int,default=2000)
@@ -390,6 +431,8 @@ def parser():
                    help='Mix source copying into P4. Continuations use the saved setting.')
     p.add_argument('--contextual-edits', action=argparse.BooleanOptionalAction,
                    help='Learn edit positions from real sentence pairs and guide source copying.')
+    p.add_argument('--span-edits', action=argparse.BooleanOptionalAction,
+                   help='Train P4 to emit ordered whole-word edits. Compatible fused checkpoints can be adapted.')
     p.add_argument('--d-model',type=int,default=192,help='Six-layer hidden width')
     p.add_argument('--attention-heads',type=int,default=4,help='Six-layer attention head count')
     p.add_argument('--ffn-dim',type=int,default=768,help='Six-layer Transformer feed-forward width')

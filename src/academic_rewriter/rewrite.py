@@ -22,9 +22,34 @@ def load_checkpoint(checkpoint, device):
     tokenizer = AutoTokenizer.from_pretrained(root/'tokenizer', local_files_only=True)
     tokenizer.padding_side = 'right'
     model = SixLayerRewriter(SixLayerConfig.load(root/'six_layer_config.json'))
+    if model.config.span_edits and len(tokenizer) != model.config.text_vocab_size:
+        raise ValueError('Checkpoint and tokenizer text vocabularies differ')
     model.load_state_dict(torch.load(root/'weights.pt', map_location='cpu', weights_only=True))
     model.to(device).eval()
     return model, tokenizer, meta
+
+
+def generate_predictions(model, tokenizer, sources, inputs, max_new_tokens, *, depth=None):
+    from .span_edits import apply_edit_program, word_units
+
+    edit_mode = model.config.span_edits
+    counts = [len(word_units(source)) for source in sources] if edit_mode else None
+    sequences = model.generate(input_ids=inputs['input_ids'], attention_mask=inputs['attention_mask'],
+                               max_new_tokens=max_new_tokens, depth=depth, word_guidance=inputs.get('word_guidance'),
+                               edit_unit_counts=counts)
+    if not edit_mode:
+        predictions = tokenizer.batch_decode(sequences, skip_special_tokens=True)
+        return [(dict(prediction=text), tokens) for text, tokens in zip(predictions, sequences.tolist(), strict=True)]
+
+    results = []
+    for source, tokens in zip(sources, sequences.tolist(), strict=True):
+        try:
+            prediction, edits = apply_edit_program(source, tokens[1:], tokenizer, model.config)
+            result = dict(prediction=prediction, edits=[asdict(edit) for edit in edits], edit_error=None)
+        except ValueError as error:
+            result = dict(prediction=source, edits=[], edit_error=str(error))
+        results.append((result, tokens))
+    return results
 
 
 def rewrite_neural(text, depth, checkpoint, device=None, max_new_tokens=None):
@@ -53,21 +78,23 @@ def rewrite_neural(text, depth, checkpoint, device=None, max_new_tokens=None):
     if source_length > meta['max_length']:
         raise ValueError(f'Source uses {source_length} tokens and exceeds the checkpoint input limit of {meta["max_length"]}')
     remaining = config.max_positions - source_length
-    budget = min(meta['max_length'], remaining) if max_new_tokens is None else max_new_tokens
+    default_budget = meta['max_length'] + (2 if config.span_edits else 0)
+    budget = min(default_budget, remaining) if max_new_tokens is None else max_new_tokens
     if not 1 <= budget <= remaining:
         raise ValueError(f'Generation budget must be between 1 and {remaining} tokens for this input')
 
     with torch.no_grad():
-        guidance = word_task.guidance([text], inputs) if word_task else None
-        generated = model.generate(input_ids=inputs['input_ids'].to(device),
-                                   attention_mask=inputs['attention_mask'].to(device), max_new_tokens=budget,
-                                   depth=depth, word_guidance=guidance)[0]
-    tokens = generated.tolist()[1:]  # Skip the initial generation marker.
-    candidate = tokenizer.decode(tokens, skip_special_tokens=True).strip()
+        model_inputs = dict(input_ids=inputs['input_ids'].to(device),
+                            attention_mask=inputs['attention_mask'].to(device),
+                            word_guidance=word_task.guidance([text], inputs) if word_task else None)
+        (generated, tokens), = generate_predictions(model, tokenizer, [text], model_inputs, budget, depth=depth)
+    candidate = generated['prediction'] if config.span_edits else generated['prediction'].strip()
     if not candidate:
         fallback = 'empty_candidate'
-    elif config.eos_token_id not in tokens:
+    elif config.eos_token_id not in tokens[1:]:
         fallback = 'no_end_token'
+    elif generated.get('edit_error'):
+        fallback = 'invalid_edit_program'
     elif numbers(text) != numbers(candidate):
         fallback = 'changed_numbers'
     else:
@@ -78,6 +105,8 @@ def rewrite_neural(text, depth, checkpoint, device=None, max_new_tokens=None):
                   fallback=fallback)
     if fallback and not config.fuse_stage_outputs:
         result['candidate'] = candidate
+    if config.span_edits:
+        result.update(edits=[] if fallback else generated['edits'], edit_error=generated['edit_error'])
     return result
 
 

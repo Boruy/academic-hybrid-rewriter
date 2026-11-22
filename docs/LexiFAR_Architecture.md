@@ -26,6 +26,12 @@ At every token position, the model concatenates the four projected features F1�
 
 Each optimizer update uses a batch of [sentence pairs](../data/academic-pairs-v1/README.md) and a batch of [word pairs](../data/word-formality-v1/README.md). The default loss is `0.5 × CE(P3 sentence) + 0.5 × CE(P4 sentence) + 0.25 × word replacement CE + 0.25 × source-edit BCE`. Both word losses average P1, P2 and P3. Within the real training pairs, exact aligned source spans supply `KEEP` labels and replaced or deleted spans supply edit labels. Pure insertions receive sentence-level supervision. References supply these loss labels and E1–E3 are computed from the source. Checkpoint selection uses the fused final cross-entropy on the real validation split.
 
+## Whole-word final edits
+
+With `span_edits` enabled, P3 keeps the auxiliary sentence target and P4 predicts an ordered program of half-open source ranges and their replacement text. The source is divided into whitespace-delimited units, with preceding whitespace and attached punctuation carried with each word. A range with equal boundaries inserts text. A nonempty range with an empty replacement deletes text. An empty program retains the entire source.
+
+The supervised program aligns the source and reference at these unit boundaries. The model reserves IDs for source boundaries after its byte-level text vocabulary. E1–E3 continue to guide the backbone, and the P4 decoder selects the final ranges in source order. The renderer validates the complete program, copies unselected source slices literally, and rejects edit programs that join neighboring words across a slice boundary. Replacement text within a selected range still uses subword generation.
+
 ## Train once and generate the final rewrite
 
 Run from the repository root in PowerShell. The default training config replaces the checkpoint and training logs in the selected output directory when rerun.
