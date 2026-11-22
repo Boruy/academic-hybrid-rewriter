@@ -52,7 +52,7 @@ The terminal prints each optimizer update and its losses. Pass `--log-every 10` 
 
 The focused grammar experiment continues the completed v6 checkpoint and writes to `runs/six_layer_joint_v7_grammar`. It samples the grammar supplement and gives edited reference tokens extra weight in the final sentence loss. See the [grammar continuation commands](docs/LexiFAR_Training.md#focused-grammar-continuation).
 
-The span-edit experiment trains P4 to select complete word ranges and generate their replacement text. It copies the untouched source text verbatim, including spacing and punctuation. See the [span-edit commands](docs/LexiFAR_Training.md#whole-word-span-editing).
+The v8 span-edit configuration trains the full six-layer model from random weights and writes to `runs/six_layer_joint_v8_spans_scratch`. P4 learns to select complete word ranges and generate their replacements while copying untouched source text verbatim. See the [manual training commands](docs/LexiFAR_Training.md#whole-word-span-editing).
 
 ## Test and export final predictions
 

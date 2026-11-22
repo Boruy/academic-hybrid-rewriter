@@ -79,19 +79,21 @@ Compare `evaluation/validation-192/predictions.csv` with the v6 file by ID. Insp
 
 ## Whole-word span editing
 
-The v8 experiment adapts the completed `runs/six_layer_joint_v7_grammar` checkpoint and writes an independent checkpoint to `runs/six_layer_joint_v8_spans`. Adaptation reuses the parent model and tokenizer and initializes 193 new embedding rows for edit boundaries. The continuation uses 1,000 updates with a fresh optimizer and the same sentence and grammar sampling recipe as v7.
+The v8 configuration starts the entire six-layer model, including the 193 edit-boundary embeddings, from random weights. It fits a new byte-level BPE tokenizer on the training sentence pairs, grammar supplement and word corpus. The full sentence training pool contains 12,555 pairs. Each batch samples eight real revisions, six original synthetic pairs and two grammar pairs. The 76 word examples provide separate supervision.
+
+The recipe uses 2,000 optimizer updates, batch size 16, a learning rate of `3e-4` and seed 42. Validation runs every 250 updates. The final checkpoint is written to `runs/six_layer_joint_v8_spans_scratch`.
 
 P4 learns ordered edit records from the existing training references. All untouched source spans are copied verbatim. Whole words may be replaced, deleted or preceded by an insertion. The renderer retains the source and records `edit_error` if the program is incomplete, has an invalid range or would join words across the edit boundary. For references with too many separate edits for the target budget, training can encode one edit spanning the source. The current 12,740 pairs fit as aligned edits with the v7 tokenizer.
 
 ```powershell
 $python = '.\.venv\Scripts\python.exe'
-$run = 'runs/six_layer_joint_v8_spans'
+$run = 'runs/six_layer_joint_v8_spans_scratch'
 & $python -m unittest discover -s tests -p 'test_span_edits.py' -v
 & $python scripts/train_six_layer.py --config configs/six_layer_span_edits.json
 & $python -m academic_rewriter.test --checkpoint $run --split validation --max-new-tokens 194 --limit 0
 ```
 
-To start from the completed v6 model, add `--init-checkpoint runs/six_layer_joint_v6_edits --output runs/six_layer_joint_v8_from_v6` to the training command. Compare the source, reference and assembled prediction in `evaluation/validation-194/predictions.csv`. The JSONL records `edits` with source character offsets and `edit_error`. Inspect those fields to distinguish a deliberate retain decision from an invalid attempt. Tests, training and qualitative comparison remain pending.
+The earlier 1,000-step continuation from v7 is available in `runs/six_layer_joint_v8_spans`. For a separate continuation, pass `--init-checkpoint` with a compatible checkpoint and choose a separate `--output` directory. Compare the source, reference and assembled prediction in `evaluation/validation-194/predictions.csv`. The JSONL records `edits` with source character offsets and `edit_error`. Inspect those fields to distinguish a deliberate retain decision from an invalid attempt. The from-scratch checkpoint and its evaluation await manual execution.
 
 ## Evaluate the entire split
 
