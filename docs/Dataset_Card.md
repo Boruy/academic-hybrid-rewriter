@@ -42,6 +42,22 @@ Recorded cross-split document and exact-text overlaps are zero. This does not ex
 
 These records do not add new paper text to the public repository. Original paper text and private reviewer mappings remain in ignored `.cache` locations. Paper-specific licenses still apply. The public records report zero independently human-verified new pairs; upstream intent signals and AI triage are not independent human approvals. The historical report and curation interfaces have been removed, but the frozen references and provenance remain intact.
 
+## Reviewed training expansion
+
+The first expansion uses the **118** screened candidates from the frozen arXivEdits training partition. Preliminary AI triage shortlisted 19 of them for human review. The two local training packets currently have zero recorded human decisions.
+
+Each independent reviewer opens their own packet in `.cache/academic-refinement/review-v2/train/`, `curator_1.html` or `curator_2.html`. Review whether the source needs academic refinement and whether the edit improves the expression while retaining the facts, methods, quantities, qualifiers and scope. Both reviewers must select Academic Style, score meaning preservation and target fluency at least 4/5, mark the source as needing revision and the target as suitable, and report zero major factual errors.
+
+Use **Download my reviews** in each packet. Place the exports `train_curator_1.jsonl` and `train_curator_2.jsonl` in the same local review directory. Partial exports are supported, and a pair enters training when both reviews are complete and pass the criteria.
+
+```powershell
+$python = '.\.venv\Scripts\python.exe'
+$reviews = '.cache/academic-refinement/review-v2/train'
+& $python scripts/expand_academic_pairs.py --reviews "$reviews/train_curator_1.jsonl" "$reviews/train_curator_2.jsonl"
+```
+
+The builder binds reviewed text to the frozen references, checks for duplicate pairs and overlap with protected documents and held-out text, and writes `.cache/academic-pairs-v2` once it has at least one jointly approved pair. It appends approved real pairs to the v1 training bytes and copies the original 98 validation and 87 test pairs byte for byte. The local manifest records review, source and dataset fingerprints and counts. The local experiment config reuses the v8 recipe and assigns a dedicated run directory. Use `--version 3` for a later expansion of the review pool. See [the training commands](LexiFAR_Training.md#train-on-the-reviewed-expansion).
+
 ## Loading and tokenization
 
 Sentence training, validation and test records use `id`, `source` and `target`. The joint six-layer tokenizer is fitted to sentence and word training text only. Source and target receive BOS/EOS tokens, dynamic right padding uses attention masks, and target padding is ignored by cross-entropy. The versioned launcher verifies data hashes and rejects source/target truncation.

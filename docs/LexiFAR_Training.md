@@ -95,6 +95,22 @@ $run = 'runs/six_layer_joint_v8_spans_scratch'
 
 The earlier 1,000-step continuation from v7 is available in `runs/six_layer_joint_v8_spans`. For a separate continuation, pass `--init-checkpoint` with a compatible checkpoint and choose a separate `--output` directory. Compare the source, reference and assembled prediction in `evaluation/validation-194/predictions.csv`. The JSONL records `edits` with source character offsets and `edit_error`. Inspect those fields to distinguish a deliberate retain decision from an invalid attempt. The from-scratch checkpoint and its evaluation await manual execution.
 
+## Train on the reviewed expansion
+
+Build `.cache/academic-pairs-v2` after both curators return completed decisions for the same training candidates. The [data card](Dataset_Card.md#reviewed-training-expansion) gives the review criteria and build command. The generated config uses the same from-scratch v8 settings and adds the approved revisions to the real training pool. It writes to `runs/six_layer_joint_v8_academic_pairs_v2`.
+
+```powershell
+$python = '.\.venv\Scripts\python.exe'
+$data = '.cache/academic-pairs-v2'
+$run = 'runs/six_layer_joint_v8_academic_pairs_v2'
+& $python -m unittest discover -s tests -p 'test_academic_pair_expansion.py' -v
+& $python scripts/train_six_layer.py --config "$data/experiment.json" --print-command
+& $python scripts/train_six_layer.py --config "$data/experiment.json"
+& $python -m academic_rewriter.test --checkpoint $run --data $data --split validation --max-new-tokens 194 --limit 0
+```
+
+Use the same validation cases to compare which needed edits each model completes, where it makes unnecessary edits, and whether it preserves facts and qualifiers. The independent reviews, dataset build and training comparison are pending.
+
 ## Evaluate the entire split
 
 ```powershell
