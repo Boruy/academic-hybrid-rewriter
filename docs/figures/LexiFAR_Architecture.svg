@@ -1,12 +1,14 @@
 <svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink"
-     width="1920" height="840" viewBox="0 0 1920 840" role="img" aria-labelledby="diagram-title diagram-description">
-  <title id="diagram-title">LexiFAR architecture</title>
+     width="1920" height="1080" viewBox="0 0 1920 1080" role="img" aria-labelledby="diagram-title diagram-description">
+  <title id="diagram-title">LexiFAR v8 architecture and whole-word editing</title>
   <desc id="diagram-description">Four supervised stages share a six-block backbone. The first and second stages
     use one LSTM each, the third uses two Transformers, and the fourth uses two Mamba blocks. Source-only
     word predictions at the first three stages produce position weights and probability-weighted replacement
     vectors for the next stage. Stage three also has an auxiliary sentence loss. All four projected features
-    are concatenated per token, projected from 4d to d and decoded by the tied vocabulary head. Only P4
-    generates the final rewrite. The right panel expands the shared contextual word edit module.</desc>
+    are concatenated per token and projected from 4d to d. P4 mixes tied vocabulary and source-copy
+    probabilities, then decodes ordered source spans and replacement text. The renderer applies the
+    edit program to the original sentence. Single-sentence inference checks protected expressions.
+    The right panel expands the shared contextual word edit module.</desc>
   <defs>
     <marker id="arrow" markerUnits="userSpaceOnUse" markerWidth="9" markerHeight="8" refX="8.3" refY="4" orient="auto" viewBox="0 0 9 8">
       <path d="M0 0.5 8.5 4 0 7.5Z" fill="#161d28"/>
@@ -87,7 +89,7 @@
     .bridge { fill:none; stroke:#f5f5f4; stroke-width:7.5; }
     .junction { fill:#161d28; }
   </style>
-  <rect width="1920" height="840" fill="#fff"/>
+  <rect width="1920" height="1080" fill="#fff"/>
   <g aria-label="Panel frames">
     <rect class="warm-panel" x="12" y="14" width="270" height="810"/>
     <rect class="panel" x="298" y="14" width="438" height="202"/>
@@ -96,6 +98,7 @@
     <rect class="panel" x="1314" y="14" width="594" height="202"/>
     <rect class="warm-panel" x="298" y="229" width="1114" height="595"/>
     <rect class="panel" x="1426" y="229" width="482" height="595"/>
+    <rect class="warm-panel" x="12" y="846" width="1896" height="218"/>
   </g>
   <g id="mamba-mixer" aria-label="Mamba mixer with a selective state-space path and a SiLU gate">
     <text x="314" y="42" class="section">Mamba mixer</text>
@@ -180,7 +183,7 @@
     <text x="1665" y="186" font-size="24">Supervision</text>
   </g>
   <g id="backbone" aria-label="Six-layer sequence backbone">
-    <text x="147" y="48" class="mid" font-size="32" font-weight="700">LexiFAR</text>
+    <text x="147" y="48" class="mid" font-size="32" font-weight="700">LexiFAR v8</text>
     <rect x="38" y="64" width="218" height="85" fill="#242c35" stroke="#9b9da0" stroke-width="4"/>
     <text x="147" y="84" class="source-label mid" font-size="13" style="fill:#e2e5e5">Source sentence</text>
     <text x="147" y="111" class="mid" font-size="23" style="fill:#fff">We <tspan font-style="italic" fill="#ffdda0">get</tspan> access</text>
@@ -339,7 +342,7 @@
     <use xlink:href="#feature-sheet" transform="translate(592 707)"/>
     <text x="585" y="742" class="feature-label end">F₄</text>
   </g>
-  <g id="p4" aria-label="Concatenation, learned four-to-one projection, tied vocabulary head and sole final rewrite">
+  <g id="p4" aria-label="Feature fusion and the P4 edit-token distribution">
     <g id="concatenated-features" aria-label="Concatenate F1 through F4 per token">
       <use xlink:href="#feature-sheet" transform="translate(764 703)"/>
       <use xlink:href="#feature-sheet" transform="translate(756 703)"/>
@@ -353,23 +356,26 @@
     <text x="858" y="704" class="detail-label mid">Linear</text>
     <text x="858" y="723" class="reading mid">4d → d</text>
     <path class="flow" d="M911 707H937"/>
-    <rect x="942" y="685" width="141" height="48" fill="#293b50" opacity=".16"/>
-    <rect x="940" y="683" width="141" height="48" fill="#edbaa2" class="box"/>
-    <rect x="942.5" y="685.5" width="136" height="43" fill="none" stroke="#fff0d1"/>
-    <text x="1010.5" y="704" class="detail-label mid">LayerNorm</text>
-    <text x="1010.5" y="723" class="reading mid">Tied vocab. head</text>
+    <rect x="942" y="677" width="141" height="64" fill="#293b50" opacity=".16"/>
+    <rect x="940" y="675" width="141" height="64" fill="#edbaa2" class="box"/>
+    <rect x="942.5" y="677.5" width="136" height="59" fill="none" stroke="#fff0d1"/>
+    <text x="1010.5" y="695" class="reading mid">LayerNorm</text>
+    <text x="1010.5" y="713" class="reading mid">Tied vocabulary</text>
+    <text x="1010.5" y="731" class="reading mid">+ source copy</text>
+    <text x="1010.5" y="758" class="note mid">E₃ biases copy attention</text>
     <path class="flow" d="M1082 707H1108"/>
     <text x="1150" y="706" class="prediction mid">P₄</text>
-    <text x="1150" y="733" class="detail-label mid" font-weight="700">Final rewrite</text>
+    <text x="1150" y="733" class="detail-label mid" font-weight="700">Edit tokens</text>
     <path class="supervision" d="M1190 704H1297"/>
-    <text x="1243" y="694" class="super-label mid">Sentence CE</text>
-    <text x="1353" y="703" class="truth mid">Reference</text>
-    <text x="1353" y="725" class="truth mid">tokens</text>
+    <text x="1243" y="694" class="super-label mid">Program CE</text>
+    <text x="1353" y="703" class="truth mid">Aligned</text>
+    <text x="1353" y="725" class="reading mid">edit program</text>
   </g>
   <g aria-label="One joint training objective for all stages">
     <path d="M317 766H1393" fill="none" stroke="#d2cfbd" stroke-width="1.2"/>
-    <text x="318" y="800" font-size="21" font-weight="700">Joint training loss</text>
-    <text x="501" y="800" font-size="21"><tspan font-style="italic">L</tspan> = 0.25 mean(CE<tspan baseline-shift="sub" font-size="14">w,1</tspan>, CE<tspan baseline-shift="sub" font-size="14">w,2</tspan>, CE<tspan baseline-shift="sub" font-size="14">w,3</tspan>) + 0.50 CE<tspan baseline-shift="sub" font-size="14">aux</tspan> + 0.50 CE<tspan baseline-shift="sub" font-size="14">final</tspan></text>
+    <text x="318" y="789" font-size="20" font-weight="700">Joint training loss</text>
+    <text x="500" y="789" font-size="18">0.50 CE(P₃ sentence) + 0.50 CE(P₄ edits) + 0.25 CE(word replacement) + 0.25 BCE(edit position)</text>
+    <text x="500" y="812" class="note">P₄ training weight: 2× for inserted or replacement text. Checkpoint selection uses unweighted P₄ validation CE.</text>
   </g>
   <g id="word-edit-detail" aria-label="Shared contextual single-word edit module">
     <text x="1443" y="257" class="section">Contextual word edit module</text>
@@ -421,5 +427,40 @@
     <rect x="1584" y="720" width="220" height="36" rx="0" fill="#f6c7c9" class="box"/>
     <text x="1694" y="744" class="detail-label mid">Next-stage features</text>
     <text x="1668" y="794" class="math mid">H′ᵢ = Hᵢ + gᵢ · W LN(Hᵢ) + rᵢ</text>
+  </g>
+  <g id="whole-word-decoding" aria-label="Constrained edit decoding, rendering and protected-expression checks">
+    <path class="gray-flow" d="M1150 740V752H1401V835H25V942H38"/>
+    <text x="42" y="878" class="section">P₄ whole-word decoding</text>
+
+    <rect x="40" y="904" width="266" height="76" rx="4" fill="#c8dbee" class="box"/>
+    <text x="173" y="935" class="node-label mid" font-weight="700">Constrained decoder</text>
+    <text x="173" y="959" class="reading mid">Ordered, non-overlapping spans</text>
+    <path class="flow" d="M307 942H335"/>
+
+    <rect x="338" y="904" width="280" height="76" rx="4" fill="#fff1cd" class="box"/>
+    <text x="478" y="935" class="node-label mid" font-weight="700">Edit program</text>
+    <text x="478" y="959" class="reading mid">[start, end) + BPE replacement</text>
+    <path class="flow" d="M619 942H649"/>
+
+    <rect x="652" y="904" width="292" height="76" rx="4" fill="#c7d9c3" class="box"/>
+    <text x="798" y="935" class="node-label mid" font-weight="700">Render edits</text>
+    <text x="798" y="959" class="reading mid">Copy untouched source spans</text>
+    <path class="flow" d="M945 942H974"/>
+
+    <rect x="977" y="904" width="306" height="76" rx="4" fill="#f6c7c9" class="box"/>
+    <text x="1130" y="929" class="node-label mid" font-weight="700">Fact safeguard</text>
+    <text x="1130" y="951" class="reading mid">Numbers, comparisons, identifiers</text>
+    <text x="1130" y="970" class="note mid">Single-sentence inference</text>
+    <path class="flow" d="M1284 942H1313"/>
+
+    <rect x="1316" y="904" width="558" height="76" rx="4" fill="#f6f6f5" class="box"/>
+    <text x="1595" y="933" class="node-label mid" font-weight="700">Example final rewrite</text>
+    <text x="1595" y="959" class="detail-label mid">We <tspan font-weight="700">gain</tspan> access to the records.</text>
+
+    <rect x="40" y="1003" width="280" height="38" rx="4" fill="#f6f6f5" class="box"/>
+    <text x="180" y="1028" class="detail-label mid">Original text and word offsets</text>
+    <path class="flow" d="M321 1022H798V983"/>
+    <text x="977" y="1019" class="note">Batch evaluation exports the rendered prediction and diagnostic flags.</text>
+    <text x="977" y="1041" class="note">Single-sentence inference returns the source when rendering or fact checks fail.</text>
   </g>
 </svg>

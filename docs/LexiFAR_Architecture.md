@@ -11,9 +11,9 @@ LexiFAR trains all four stages jointly. The first three predictions provide word
 
 ## Architecture and loss
 
-![LexiFAR's six-block backbone, three word guides and four feature paths feeding the final rewrite](figures/LexiFAR_Architecture.svg)
+![LexiFAR v8 with a six-block backbone, three word guides, joint training supervision and a whole-word edit decoder](figures/LexiFAR_Architecture.svg)
 
-The purple paths carry F1–F4 into the final vocabulary head at P4. The right inset shows how each source word provides a location weight and a probability-weighted replacement vector for the next stage. Double-headed arrows mark cross-entropy (CE) supervision during joint training. [Open the editable English diagram](figures/LexiFAR_Architecture.svg).
+The purple paths carry F1–F4 into P4, which mixes vocabulary and source-copy probabilities. The right inset shows how source words supply location weights and probability-weighted replacement vectors. Double-headed arrows mark cross-entropy supervision. The lower panel traces constrained edit decoding, rendering against the source and protected-expression checks for single-sentence inference. [Editable English diagram](figures/LexiFAR_Architecture.svg)
 
 Each stage has a `MidFPred` projection with two linear layers and GELU. The shared word edit module takes the place of CDEA. At P1, P2 and P3 it reads the final subword of the source span and the sentence-end representation. It predicts `KEEP` and the word's available replacements. With contextual edits enabled, it also predicts a generic `EDIT` class for aligned spans throughout the sentence, including words outside the replacement list. The guide to the next stage has two components.
 
