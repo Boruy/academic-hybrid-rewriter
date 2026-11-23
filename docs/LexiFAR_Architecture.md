@@ -24,7 +24,7 @@ For example, an edit to `get access` can pass a vector weighted toward `gain`, w
 
 At every token position, the model concatenates the four projected features F1–F4. A learned `4d → d` projection produces the fused feature for the vocabulary head. The same fusion runs in the training forward pass and cached generation. P4 mixes vocabulary and source-copy probabilities. With contextual edits enabled, it subtracts the unexpanded E3 edit weight from the copy attention logit at each source position, favoring retention of positions with smaller edit weights. Boundary enhancement still supplies the residual guide between stages.
 
-Each optimizer update uses a batch of [sentence pairs](../data/academic-pairs-v1/README.md) and a batch of [word pairs](../data/word-formality-v1/README.md). The default loss is `0.5 × CE(P3 sentence) + 0.5 × CE(P4 sentence) + 0.25 × word replacement CE + 0.25 × source-edit BCE`. Both word losses average P1, P2 and P3. Within the real training pairs, exact aligned source spans supply `KEEP` labels and replaced or deleted spans supply edit labels. Pure insertions receive sentence-level supervision. References supply these loss labels and E1–E3 are computed from the source. Checkpoint selection uses the fused final cross-entropy on the real validation split.
+Each optimizer update uses a batch of [sentence pairs](Dataset_Card.md#author-revision-expansion) and a batch of [word pairs](../data/word-formality-v1/README.md). The v8 loss uses coefficients 0.5 for the P3 reference sentence, 0.5 for the P4 edit program, 0.25 for word replacement CE and 0.25 for source-edit BCE. The current recipe gives insertion and replacement text twice the weight of control and boundary tokens within the P4 training loss. Both word losses average P1, P2 and P3. Within the real training pairs, exact aligned source spans supply `KEEP` labels and replaced or deleted spans supply edit labels. References supply these loss labels and E1–E3 are computed from the source. Checkpoint selection uses unweighted P4 cross-entropy on the real validation split.
 
 ## Whole-word final edits
 
@@ -32,46 +32,29 @@ With `span_edits` enabled, P3 keeps the auxiliary sentence target and P4 predict
 
 The supervised program aligns the source and reference at these unit boundaries. The model reserves IDs for source boundaries after its byte-level text vocabulary. E1–E3 continue to guide the backbone, and the P4 decoder selects the final ranges in source order. The renderer validates the complete program, copies unselected source slices literally, and rejects edit programs that join neighboring words across a slice boundary. Replacement text within a selected range still uses subword generation.
 
-## Train once and generate the final rewrite
+## Generate a final rewrite
 
-Run these PowerShell blocks from an installed checkout. They set the path to `P:\MLProject`. Adjust the first `Set-Location` if your checkout is elsewhere. The v6 config replaces the checkpoint and training logs in the selected output directory when rerun. [Environment setup](Environment_Setup.md)
+Run this from an installed checkout after training the current checkpoint. Adjust the first `Set-Location` if your checkout is elsewhere. [Environment setup](Environment_Setup.md) · [Complete v8 + v3 training workflow](LexiFAR_Training.md#train-on-the-author-revision-expansion)
 
 ```powershell
 & {
     Set-Location -LiteralPath 'P:\MLProject' -ErrorAction Stop
     $python = '.\.venv\Scripts\python.exe'
-    $checkpoint = 'runs/six_layer_joint_v6_edits'
+    $checkpoint = 'runs/six_layer_joint_v8_academic_pairs_v3_payload_2_best'
     $sentence = 'The proposed method gets better results than the baseline.'
-    & $python scripts/train_six_layer.py --config 'configs/six_layer_experiment.json' --output $checkpoint
-    if ($LASTEXITCODE -ne 0) { throw 'v6 training failed. See the output above.' }
-    & $python -m academic_rewriter.rewrite --checkpoint $checkpoint --text $sentence --max-new-tokens 192
+    if (-not (Test-Path -LiteralPath "$checkpoint/result.json" -PathType Leaf -ErrorAction Stop)) {
+        throw 'Complete the current v8 training workflow before rewriting.'
+    }
+    & $python -m academic_rewriter.rewrite --checkpoint $checkpoint --text $sentence --max-new-tokens 194 --span-copy-scale 1.0
     if ($LASTEXITCODE -ne 0) { throw 'Single-sentence rewriting failed. See the output above.' }
 }
 ```
 
-Joint checkpoints record the stage layout, feature fusion, replacement vocabulary, candidate guidance, source copying and contextual edits in `six_layer_config.json`. Earlier checkpoints load their saved output and guidance settings. The single-sentence command returns the source if the rewrite is empty, lacks an end token or changes the numeric strings.
+Joint checkpoints record the stage layout, feature fusion, replacement vocabulary, candidate guidance, source copying and contextual edits in `six_layer_config.json`. The single-sentence command returns the source and records the fallback reason when an edit program fails or changes a protected expression.
 
 ## Test the fused rewrite
 
-```powershell
-& {
-    Set-Location -LiteralPath 'P:\MLProject' -ErrorAction Stop
-    $python = '.\.venv\Scripts\python.exe'
-    $data = 'data/academic-pairs-v1'
-    $checkpoint = 'runs/six_layer_joint_v6_edits'
-    if (-not (Test-Path -LiteralPath "$checkpoint/result.json" -PathType Leaf -ErrorAction Stop)) {
-        throw 'Complete v6 training before evaluation.'
-    }
-    & $python -m unittest discover -s tests -p 'test_joint_rewriter.py' -v
-    if ($LASTEXITCODE -ne 0) { throw 'Joint rewriter tests failed. See the output above.' }
-    foreach ($split in @('validation', 'test')) {
-        & $python -m academic_rewriter.test --checkpoint $checkpoint --data $data --split $split --batch-size 8 --max-new-tokens 192 --limit 0 --output "$checkpoint/evaluation/${split}-192"
-        if ($LASTEXITCODE -ne 0) { throw "v6 $split evaluation failed. See the output above." }
-    }
-}
-```
-
-The test commands evaluate all 98 validation pairs and all 87 real test pairs. The CSV and JSONL each contain one `prediction` per input, aligned with the source and human reference. JSONL also includes token and generation diagnostics. `metrics.json` reports final sentence metrics and a copy-input baseline. The batch test exports raw fused generations for diagnostics. The existing real splits have already been inspected and support exploratory comparison.
+The training workflow exports all 98 validation predictions. The test command evaluates all 87 real test pairs with the selected checkpoint. The CSV and JSONL align each raw prediction with the source and reference. JSONL includes token and edit diagnostics, and `metrics.json` reports final sentence metrics and a copy-input baseline. [Full test command](LexiFAR_Training.md#evaluate-the-entire-split)
 
 To audit internal word decisions, first place distinct, independently reviewed real cases at `.cache/reviewed_word_pairs.jsonl`. Each row needs `source` and `target`. For retain cases, include `focus` and, for repeated words, `focus_start`. The result provides aggregate focused replacement accuracy, unnecessary edit rate and exact sentence accuracy. The included word corpus is training only.
 
@@ -79,12 +62,15 @@ To audit internal word decisions, first place distinct, independently reviewed r
 & {
     Set-Location -LiteralPath 'P:\MLProject' -ErrorAction Stop
     $python = '.\.venv\Scripts\python.exe'
-    $checkpoint = 'runs/six_layer_joint_v6_edits'
+    $checkpoint = 'runs/six_layer_joint_v8_academic_pairs_v3_payload_2_best'
     $wordTest = '.cache/reviewed_word_pairs.jsonl'
+    if (-not (Test-Path -LiteralPath "$checkpoint/result.json" -PathType Leaf -ErrorAction Stop)) {
+        throw 'Complete the current v8 training workflow before evaluating.'
+    }
     if (-not (Test-Path -LiteralPath $wordTest -PathType Leaf -ErrorAction Stop)) {
         throw "Place the independently reviewed word pairs at $wordTest."
     }
-    & $python -m academic_rewriter.test --checkpoint $checkpoint --data 'data/academic-pairs-v1' --split test --batch-size 8 --max-new-tokens 192 --limit 0 --word-test $wordTest --output "$checkpoint/evaluation/test-192-word-test"
+    & $python -m academic_rewriter.test --checkpoint $checkpoint --data '.cache/academic-pairs-v3' --split test --batch-size 8 --max-new-tokens 194 --limit 0 --span-copy-scale 1.0 --word-test $wordTest --output "$checkpoint/evaluation/test-194-word-test"
     if ($LASTEXITCODE -ne 0) { throw 'Word evaluation failed. See the output above.' }
 }
 ```

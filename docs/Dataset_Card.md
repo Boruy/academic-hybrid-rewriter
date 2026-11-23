@@ -6,7 +6,7 @@ All original dataset files, frozen splits, source hashes and curation records ar
 
 Run the PowerShell blocks with the project environment installed. Each block sets the checkout path to `P:\MLProject`. Adjust that first path if your checkout is elsewhere. [Environment setup](Environment_Setup.md)
 
-## Active paired corpus
+## Frozen base corpus
 
 `data/academic-pairs-v1` contains:
 
@@ -69,7 +69,7 @@ Use **Download my reviews** in each packet. Place the exports `train_curator_1.j
 }
 ```
 
-The builder binds reviewed text to the frozen references, checks for duplicate pairs and overlap with protected documents and held-out text, and writes `.cache/academic-pairs-v2` once it has at least one jointly approved pair. It appends approved real pairs to the v1 training bytes and copies the original 98 validation and 87 test pairs byte for byte. The local manifest records review, source and dataset fingerprints and counts. The local experiment config reuses the v8 recipe and assigns a dedicated run directory. Choose an unused version number for a later expansion of the review pool. [Complete v2 training and validation commands](LexiFAR_Training.md#train-on-the-reviewed-expansion)
+The builder binds reviewed text to the frozen references, checks for duplicate pairs and overlap with protected documents and held-out text, and writes `.cache/academic-pairs-v2` once it has at least one jointly approved pair. It appends approved real pairs to the v1 training bytes and copies the original 98 validation and 87 test pairs byte for byte. The local manifest records review, source and dataset fingerprints and counts. The local experiment config records the study and its dedicated run directory. Choose an unused version number for a later expansion of the review pool.
 
 ## Author revision expansion
 
