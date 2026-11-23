@@ -8,7 +8,7 @@ import unittest
 import torch
 
 from academic_rewriter.joint_words import word_replacements
-from academic_rewriter.rewrite import load_checkpoint, rewrite_neural
+from academic_rewriter.rewrite import load_checkpoint, rewrite_neural, span_fact_error
 from academic_rewriter.run import build_subword_tokenizer, parser, read_rows, run
 from academic_rewriter.six_layer import SixLayerConfig, SixLayerRewriter
 from academic_rewriter.span_edits import EditProgramDecoder, apply_edit_program, encode_edit_program
@@ -27,6 +27,22 @@ def config_for(tokenizer, *, span_edits=True):
 
 
 class SpanEditTests(unittest.TestCase):
+    def test_identifies_protected_changes_in_raw_edits(self):
+        cases = [
+            ('The method uses 12 samples.', 'The method uses 13 samples.', 'changed_numbers'),
+            ('We evaluate seven architectures.', 'We evaluate diverse architectures.', 'changed_number_words'),
+            ('This approach is upto 12 times faster than the baseline.',
+             'This approach is up to 12 optimal for the baseline.', 'changed_numeric_comparison'),
+            ('Bio-T5 extracts the annotations.', 'The model extracts the annotations.', 'changed_technical_identifier'),
+            ('We use the image features.', 'We use the VQA image features.', 'changed_technical_identifier'),
+            ('This approach is upto 12 times faster than the baseline.',
+             'This method is up to 12 times faster than the baseline.', None),
+            ('We use a corpus this kind.', 'We use a corpus of this kind.', None),
+        ]
+        for source, candidate, expected in cases:
+            with self.subTest(source=source, candidate=candidate):
+                self.assertEqual(span_fact_error(source, candidate), expected)
+
     def test_edit_targets_round_trip_with_literal_kept_text(self):
         source = '  We use a corpus this kind to describe  physical appearance.\n'
         target = '  We employ a corpus of this kind to describe  physical appearance.\n'
@@ -105,7 +121,7 @@ class SpanEditTests(unittest.TestCase):
                                         '--checkpoint-selection', 'final'])
             with contextlib.redirect_stdout(io.StringIO()):
                 result = run(args)
-                evaluate_checkpoint(evaluation_parser().parse_args([
+                metrics = evaluate_checkpoint(evaluation_parser().parse_args([
                     '--data', str(root), '--checkpoint', str(output), '--split', 'validation',
                     '--device', 'cpu', '--max-new-tokens', '26']))
             saved, _, _ = load_checkpoint(output, 'cpu')
@@ -118,4 +134,6 @@ class SpanEditTests(unittest.TestCase):
             self.assertEqual(single['prediction'], row['source'] if single['fallback'] else evaluated['prediction'])
             self.assertEqual(single['edits'], [] if single['fallback'] else evaluated['edits'])
             self.assertIn('edit_error', evaluated)
+            self.assertEqual(single['fact_error'], evaluated['fact_error'])
+            self.assertIn('fact_error_counts', metrics)
             self.assertNotIn('candidate', single)

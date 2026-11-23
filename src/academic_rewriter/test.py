@@ -1,5 +1,6 @@
 """Evaluate a local checkpoint on a full held-out split."""
 import argparse
+from collections import Counter
 import csv
 from dataclasses import asdict
 import json
@@ -56,6 +57,8 @@ def sentence_metrics(predictions, depth, cross_entropy):
                    target_truncated_count=sum(r['target_truncated'] for r in predictions),
                    diagnostic_note='A cap hit means the output used the complete generation budget; '
                                    'it does not prove every such sentence is incomplete.')
+    if any('fact_error' in row for row in predictions):
+        metrics['fact_error_counts'] = dict(Counter(row['fact_error'] for row in predictions if row.get('fact_error')))
     return metrics
 
 

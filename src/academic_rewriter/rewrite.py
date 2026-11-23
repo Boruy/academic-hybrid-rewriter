@@ -1,11 +1,57 @@
 """Generate a final sentence rewrite from a local checkpoint."""
 import argparse
+from collections import Counter
 from dataclasses import asdict
 import json
 from pathlib import Path
+import re
 
 from .lexical import LexicalFormalizer
 from .prepare import numbers
+
+
+_NUMBER_WORDS = frozenset(
+    'zero one two three four five six seven eight nine ten eleven twelve thirteen fourteen '
+    'fifteen sixteen seventeen eighteen nineteen twenty thirty forty fifty sixty seventy '
+    'eighty ninety hundred thousand million billion trillion dozen'.split()
+)
+_WORDS = re.compile(r'\w+')
+_IDENTIFIERS = re.compile(r'\b[A-Za-z][A-Za-z0-9]*(?:-[A-Za-z0-9]+)*\b')
+_NUMERIC_RELATIONS = re.compile(
+    r'\b(?:up\s*to|at\s+(?:least|most)|(?:(?:times|fold)\s+)?'
+    r'(?:faster|slower|higher|lower|greater|smaller|more|less|better|worse)\s+than)\b'
+)
+
+
+def span_fact_error(source, candidate):
+    """Return the first protected expression changed by a span rewrite."""
+    if source == candidate:
+        return None
+    source_numbers, candidate_numbers = numbers(source), numbers(candidate)
+    if source_numbers != candidate_numbers:
+        return 'changed_numbers'
+    source_counts, candidate_counts = (
+        Counter(word for word in _WORDS.findall(value.casefold()) if word in _NUMBER_WORDS)
+        for value in (source, candidate)
+    )
+    if source_counts != candidate_counts:
+        return 'changed_number_words'
+    if source_numbers or source_counts:
+        source_relations, candidate_relations = (
+            Counter(''.join(phrase.split()) for phrase in _NUMERIC_RELATIONS.findall(value.casefold()))
+            for value in (source, candidate)
+        )
+        if source_relations != candidate_relations:
+            return 'changed_numeric_comparison'
+
+    source_terms, candidate_terms = _IDENTIFIERS.findall(source), _IDENTIFIERS.findall(candidate)
+    protected = {term.casefold() for term in source_terms + candidate_terms
+                 if sum(char.isupper() for char in term) >= 2 or any(char.isdigit() for char in term)}
+    original = Counter(term.casefold() for term in source_terms)
+    revised = Counter(term.casefold() for term in candidate_terms)
+    if any(original[term] != revised[term] for term in protected):
+        return 'changed_technical_identifier'
+    return None
 
 
 def load_checkpoint(checkpoint, device):
@@ -45,9 +91,11 @@ def generate_predictions(model, tokenizer, sources, inputs, max_new_tokens, *, d
     for source, tokens in zip(sources, sequences.tolist(), strict=True):
         try:
             prediction, edits = apply_edit_program(source, tokens[1:], tokenizer, model.config)
-            result = dict(prediction=prediction, edits=[asdict(edit) for edit in edits], edit_error=None)
         except ValueError as error:
-            result = dict(prediction=source, edits=[], edit_error=str(error))
+            result = dict(prediction=source, edits=[], edit_error=str(error), fact_error=None)
+        else:
+            result = dict(prediction=prediction, edits=[asdict(edit) for edit in edits],
+                          edit_error=None, fact_error=span_fact_error(source, prediction))
         results.append((result, tokens))
     return results
 
@@ -95,6 +143,8 @@ def rewrite_neural(text, depth, checkpoint, device=None, max_new_tokens=None):
         fallback = 'no_end_token'
     elif generated.get('edit_error'):
         fallback = 'invalid_edit_program'
+    elif config.span_edits:
+        fallback = generated['fact_error']
     elif numbers(text) != numbers(candidate):
         fallback = 'changed_numbers'
     else:
@@ -106,7 +156,8 @@ def rewrite_neural(text, depth, checkpoint, device=None, max_new_tokens=None):
     if fallback and not config.fuse_stage_outputs:
         result['candidate'] = candidate
     if config.span_edits:
-        result.update(edits=[] if fallback else generated['edits'], edit_error=generated['edit_error'])
+        result.update(edits=[] if fallback else generated['edits'], edit_error=generated['edit_error'],
+                      fact_error=generated['fact_error'])
     return result
 
 

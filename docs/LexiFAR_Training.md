@@ -85,6 +85,8 @@ The recipe uses 2,000 optimizer updates, batch size 16, a learning rate of `3e-4
 
 P4 learns ordered edit records from the existing training references. All untouched source spans are copied verbatim. Whole words may be replaced, deleted or preceded by an insertion. The renderer retains the source and records `edit_error` if the program is incomplete, has an invalid range or would join words across the edit boundary. For references with too many separate edits for the target budget, training can encode one edit spanning the source. The current 12,740 pairs fit as aligned edits with the v7 tokenizer.
 
+For span checkpoints, the single-sentence rewrite returns the source when the candidate changes a recorded quantity, cardinal number word, recognized numeric comparison or technical identifier. It reports the first match in `fact_error` and `fallback`. Batch evaluations log `fact_error` on the assembled model prediction and summarize it in `fact_error_counts`. These checks cover recognizable expressions such as `seven`, `times faster than` and identifiers with mixed capitals or digits. Review the edited spans and their technical meaning when comparing models.
+
 ```powershell
 $python = '.\.venv\Scripts\python.exe'
 $run = 'runs/six_layer_joint_v8_spans_scratch'
@@ -129,6 +131,21 @@ $run = 'runs/six_layer_joint_v8_academic_pairs_v3'
 ```
 
 Compare the validation loss trajectory and inspect the same validation sentences for needed edits, unintended changes and preservation of technical claims. The model training, regression test and generation comparison are manual steps.
+
+### Keep the best validation checkpoint
+
+The v1 from-scratch run recorded its lowest P4 validation loss at step 500. For a v3 run using the lowest validation loss, pass `--checkpoint-selection best-validation`. The command below stops after four consecutive validation checks without improvement and writes the selected weights to a dedicated run directory. Build v3 before running it.
+
+```powershell
+$python = '.\.venv\Scripts\python.exe'
+$data = '.cache/academic-pairs-v3'
+$run = 'runs/six_layer_joint_v8_academic_pairs_v3_best'
+& $python -m unittest discover -s tests -p 'test_span_edits.py' -v
+& $python scripts/train_six_layer.py --config "$data/experiment.json" --checkpoint-selection best-validation --early-stopping-patience 4 --output $run
+& $python -m academic_rewriter.test --checkpoint $run --data $data --split validation --max-new-tokens 194 --limit 0
+```
+
+Use the new `validation-194` predictions to check needed edits, malformed replacements and protected-expression changes alongside the copy baseline. This training and validation comparison awaits manual execution.
 
 ## Evaluate the entire split
 

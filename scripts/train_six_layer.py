@@ -19,10 +19,16 @@ def main():
     parser.add_argument('--word-guidance', choices=['position', 'candidates'],
                         help='Override the joint word guidance in the experiment config')
     parser.add_argument('--log-every', type=int, help='Print progress every N updates')
+    parser.add_argument('--checkpoint-selection', choices=['final', 'best-validation'],
+                        help='Override how the checkpoint is chosen')
+    parser.add_argument('--early-stopping-patience', type=int,
+                        help='Stop after this many unimproved validation checks (0 disables stopping)')
     parser.add_argument('--print-command', action='store_true')
     args = parser.parse_args()
     if args.log_every is not None and args.log_every < 1:
         parser.error('--log-every must be positive')
+    if args.early_stopping_patience is not None and args.early_stopping_patience < 0:
+        parser.error('--early-stopping-patience must be nonnegative')
     config = json.loads((ROOT/args.config).read_text(encoding='utf8'))
     if args.output:
         config['output'] = args.output
@@ -53,6 +59,10 @@ def main():
         settings['word_guidance'] = args.word_guidance
     if args.log_every is not None:
         settings['log_every'] = args.log_every
+    if args.checkpoint_selection:
+        settings['checkpoint_selection'] = args.checkpoint_selection
+    if args.early_stopping_patience is not None:
+        settings['early_stopping_patience'] = args.early_stopping_patience
     if settings.get('depth', 'joint') == 'joint' and 'word_data_sha256' in config:
         word_path = ROOT/settings['word_data']
         if hashlib.sha256(word_path.read_bytes()).hexdigest() != config['word_data_sha256']:
