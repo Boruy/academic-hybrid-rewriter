@@ -75,14 +75,14 @@ def load_checkpoint(checkpoint, device):
     return model, tokenizer, meta
 
 
-def generate_predictions(model, tokenizer, sources, inputs, max_new_tokens, *, depth=None):
+def generate_predictions(model, tokenizer, sources, inputs, max_new_tokens, *, depth=None, span_copy_scale=1.):
     from .span_edits import apply_edit_program, word_units
 
     edit_mode = model.config.span_edits
     counts = [len(word_units(source)) for source in sources] if edit_mode else None
     sequences = model.generate(input_ids=inputs['input_ids'], attention_mask=inputs['attention_mask'],
                                max_new_tokens=max_new_tokens, depth=depth, word_guidance=inputs.get('word_guidance'),
-                               edit_unit_counts=counts)
+                               edit_unit_counts=counts, span_copy_scale=span_copy_scale)
     if not edit_mode:
         predictions = tokenizer.batch_decode(sequences, skip_special_tokens=True)
         return [(dict(prediction=text), tokens) for text, tokens in zip(predictions, sequences.tolist(), strict=True)]
@@ -92,15 +92,19 @@ def generate_predictions(model, tokenizer, sources, inputs, max_new_tokens, *, d
         try:
             prediction, edits = apply_edit_program(source, tokens[1:], tokenizer, model.config)
         except ValueError as error:
-            result = dict(prediction=source, edits=[], edit_error=str(error), fact_error=None)
+            result = dict(prediction=source, edits=[], edit_error=str(error), fact_error=None,
+                          edit_status='invalid_program')
         else:
+            status = 'edited'
+            if prediction == source:
+                status = 'retain' if tokens[2] == model.config.eos_token_id else 'noop_edit'
             result = dict(prediction=prediction, edits=[asdict(edit) for edit in edits],
-                          edit_error=None, fact_error=span_fact_error(source, prediction))
+                          edit_error=None, fact_error=span_fact_error(source, prediction), edit_status=status)
         results.append((result, tokens))
     return results
 
 
-def rewrite_neural(text, depth, checkpoint, device=None, max_new_tokens=None):
+def rewrite_neural(text, depth, checkpoint, device=None, max_new_tokens=None, *, span_copy_scale=1.):
     import torch
 
     from .joint_words import WordTask
@@ -109,6 +113,7 @@ def rewrite_neural(text, depth, checkpoint, device=None, max_new_tokens=None):
     device = torch.device(device or ('cuda' if torch.cuda.is_available() else 'cpu'))
     model, tokenizer, meta = load_checkpoint(checkpoint, device)
     config = model.config
+    model.validate_span_copy_scale(span_copy_scale)
     depth = model.sentence_depths[-1] if depth is None else depth
     if config.fuse_stage_outputs and depth != 'deep':
         raise ValueError('This checkpoint generates only the fused final rewrite. Omit --depth.')
@@ -135,7 +140,8 @@ def rewrite_neural(text, depth, checkpoint, device=None, max_new_tokens=None):
         model_inputs = dict(input_ids=inputs['input_ids'].to(device),
                             attention_mask=inputs['attention_mask'].to(device),
                             word_guidance=word_task.guidance([text], inputs) if word_task else None)
-        (generated, tokens), = generate_predictions(model, tokenizer, [text], model_inputs, budget, depth=depth)
+        (generated, tokens), = generate_predictions(model, tokenizer, [text], model_inputs, budget, depth=depth,
+                                                    span_copy_scale=span_copy_scale)
     candidate = generated['prediction'] if config.span_edits else generated['prediction'].strip()
     if not candidate:
         fallback = 'empty_candidate'
@@ -157,7 +163,8 @@ def rewrite_neural(text, depth, checkpoint, device=None, max_new_tokens=None):
         result['candidate'] = candidate
     if config.span_edits:
         result.update(edits=[] if fallback else generated['edits'], edit_error=generated['edit_error'],
-                      fact_error=generated['fact_error'])
+                      fact_error=generated['fact_error'], edit_status=generated['edit_status'],
+                      span_copy_scale=span_copy_scale)
     return result
 
 
@@ -171,6 +178,7 @@ def main(argv=None):
     model_group.add_argument('--checkpoint', help='Trained checkpoint directory')
     parser.add_argument('--device', help='Neural device, for example cpu or cuda')
     parser.add_argument('--max-new-tokens', type=int, help='Optional neural decoding limit')
+    parser.add_argument('--span-copy-scale', type=float, default=1., help='Scale the learned span payload copy gate from 0 to 1')
     args = parser.parse_args(argv)
     if not args.text.strip():
         parser.error('--text must contain a sentence')
@@ -178,6 +186,8 @@ def main(argv=None):
         parser.error('The standalone --lexical-model is only used with shallow mode on CPU')
     if (args.depth == 'shallow' or args.lexical_model) and args.max_new_tokens is not None:
         parser.error('--max-new-tokens applies to sentence generation only')
+    if args.lexical_model and args.span_copy_scale != 1.:
+        parser.error('--span-copy-scale requires a span-edit checkpoint')
 
     try:
         if args.lexical_model:
@@ -186,7 +196,7 @@ def main(argv=None):
                           word_edits=[asdict(edit) for edit in edits])
         else:
             result = rewrite_neural(args.text, args.depth, args.checkpoint,
-                                    args.device, args.max_new_tokens)
+                                    args.device, args.max_new_tokens, span_copy_scale=args.span_copy_scale)
     except (OSError, ValueError) as exc:
         parser.error(str(exc))
     print(json.dumps(result, indent=2, ensure_ascii=True))

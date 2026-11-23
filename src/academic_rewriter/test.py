@@ -26,6 +26,7 @@ def parser():
     p.add_argument('--word-test', help='Optional independently reviewed word pairs for the joint checkpoint')
     p.add_argument('--no-word-guidance', action='store_true', help='Disable word guidance for neural sentence rewrites')
     p.add_argument('--max-new-tokens', type=int, default=192, help='Maximum generated tokens per example')
+    p.add_argument('--span-copy-scale', type=float, default=1., help='Scale the learned span payload copy gate from 0 to 1')
     p.add_argument('--device', help='Default: cuda when available, otherwise cpu')
     return p
 
@@ -34,6 +35,8 @@ def evaluation_output_path(args):
     folder = f'{args.split}-{args.max_new_tokens}'
     if args.no_word_guidance:
         folder += '-no-word-guidance'
+    if args.span_copy_scale != 1.:
+        folder += f'-copy-scale-{args.span_copy_scale:g}'
     return Path(args.output) if args.output else Path(args.checkpoint)/'evaluation'/folder
 
 
@@ -59,6 +62,21 @@ def sentence_metrics(predictions, depth, cross_entropy):
                                    'it does not prove every such sentence is incomplete.')
     if any('fact_error' in row for row in predictions):
         metrics['fact_error_counts'] = dict(Counter(row['fact_error'] for row in predictions if row.get('fact_error')))
+    if predictions and 'edit_status' in predictions[0]:
+        edits = [edit for row in predictions for edit in row['edits']]
+        metrics.update(
+            edit_status_counts=dict(Counter(row['edit_status'] for row in predictions)),
+            edit_operation_counts=dict(
+                insert=sum(not edit['source'] for edit in edits),
+                delete=sum(not edit['target'] for edit in edits),
+                replace=sum(bool(edit['source']) and bool(edit['target']) for edit in edits),
+            ),
+            deletion_only_count=sum(bool(row['edits']) and all(not edit['target'] for edit in row['edits'])
+                                    for row in predictions),
+            unchanged_when_reference_changed_count=sum(
+                row['prediction'] == row['source'] and row['reference'] != row['source'] for row in predictions
+            ),
+        )
     return metrics
 
 
@@ -76,6 +94,7 @@ def run(args):
         raise ValueError('Empty evaluation split')
     device = torch.device(args.device or ('cuda' if torch.cuda.is_available() else 'cpu'))
     model, tokenizer, meta = load_checkpoint(root, device)
+    model.validate_span_copy_scale(args.span_copy_scale)
     if model.config.span_edits and args.max_new_tokens < 2:
         raise ValueError('Span edits require a generation budget of at least two tokens')
     max_length = meta['max_length']
@@ -116,7 +135,7 @@ def run(args):
             generated = {}
             for depth in depths:
                 generated[depth] = generate_predictions(model, tokenizer, sources, inputs, args.max_new_tokens,
-                                                        depth=depth)
+                                                        depth=depth, span_copy_scale=args.span_copy_scale)
             shallow = word_task.rewrite_many(sources) if compare_depths else None
             for j, row in enumerate(chosen):
                 base = dict(id=row['id'], source=row['source'], reference=row['target'])
@@ -170,6 +189,8 @@ def run(args):
                    max_new_tokens=args.max_new_tokens, num_beams=1, do_sample=False,
                    word_guidance_enabled=sentence_word_task is not None,
                    test_set_used=args.split=='test')
+    if model.config.span_edits:
+        metrics['span_copy_scale'] = args.span_copy_scale
     (out/'metrics.json').write_text(json.dumps(metrics, indent=2, ensure_ascii=False), encoding='utf8', newline='\n')
     print(json.dumps(metrics, indent=2, ensure_ascii=False), flush=True)
     print(f'Evaluation complete. Results: {out.resolve()}', flush=True)

@@ -2,6 +2,7 @@
 import argparse
 import hashlib
 import json
+import math
 from pathlib import Path
 import subprocess
 import sys
@@ -19,6 +20,9 @@ def main():
     parser.add_argument('--word-guidance', choices=['position', 'candidates'],
                         help='Override the joint word guidance in the experiment config')
     parser.add_argument('--log-every', type=int, help='Print progress every N updates')
+    parser.add_argument('--steps', type=int, help='Override the optimizer update budget')
+    parser.add_argument('--seed', type=int, help='Override the training and sampling seed')
+    parser.add_argument('--span-payload-weight', type=float, help='Override the training-only span replacement token weight')
     parser.add_argument('--checkpoint-selection', choices=['final', 'best-validation'],
                         help='Override how the checkpoint is chosen')
     parser.add_argument('--early-stopping-patience', type=int,
@@ -27,6 +31,10 @@ def main():
     args = parser.parse_args()
     if args.log_every is not None and args.log_every < 1:
         parser.error('--log-every must be positive')
+    if args.steps is not None and args.steps < 1:
+        parser.error('--steps must be positive')
+    if args.span_payload_weight is not None and (not math.isfinite(args.span_payload_weight) or args.span_payload_weight < 1.):
+        parser.error('--span-payload-weight must be finite and at least 1')
     if args.early_stopping_patience is not None and args.early_stopping_patience < 0:
         parser.error('--early-stopping-patience must be nonnegative')
     config = json.loads((ROOT/args.config).read_text(encoding='utf8'))
@@ -59,6 +67,12 @@ def main():
         settings['word_guidance'] = args.word_guidance
     if args.log_every is not None:
         settings['log_every'] = args.log_every
+    if args.steps is not None:
+        settings['steps'] = args.steps
+    if args.seed is not None:
+        settings['seed'] = args.seed
+    if args.span_payload_weight is not None:
+        settings['span_payload_weight'] = args.span_payload_weight
     if args.checkpoint_selection:
         settings['checkpoint_selection'] = args.checkpoint_selection
     if args.early_stopping_patience is not None:

@@ -3,15 +3,16 @@ import io
 import json
 from pathlib import Path
 import tempfile
+from types import SimpleNamespace
 import unittest
 
 import torch
 
 from academic_rewriter.joint_words import word_replacements
-from academic_rewriter.rewrite import load_checkpoint, rewrite_neural, span_fact_error
+from academic_rewriter.rewrite import generate_predictions, load_checkpoint, rewrite_neural, span_fact_error
 from academic_rewriter.run import build_subword_tokenizer, parser, read_rows, run
-from academic_rewriter.six_layer import SixLayerConfig, SixLayerRewriter
-from academic_rewriter.span_edits import EditProgramDecoder, apply_edit_program, encode_edit_program
+from academic_rewriter.six_layer import SixLayerConfig, SixLayerRewriter, SourceCopyHead
+from academic_rewriter.span_edits import EditProgramDecoder, apply_edit_program, encode_edit_program, span_payload_weights
 from academic_rewriter.test import parser as evaluation_parser, run as evaluate_checkpoint
 
 
@@ -27,6 +28,45 @@ def config_for(tokenizer, *, span_edits=True):
 
 
 class SpanEditTests(unittest.TestCase):
+    def test_payload_weight_preserves_control_and_padding_weights(self):
+        config = SixLayerConfig(vocab_size=13, d_model=16, max_positions=10, depth='joint',
+                                prediction_stages=4, fuse_stage_outputs=True, span_edits=True,
+                                word_replacements=word_replacements(WORDS))
+        base = config.text_vocab_size
+        labels = torch.tensor([[1, base, base + 1, 4, 2], [1, 2, -100, -100, -100]])
+        expected = torch.tensor([[1., 1., 1., 2., 1.], [1., 1., 0., 0., 0.]])
+        torch.testing.assert_close(span_payload_weights(labels, config, 2.), expected)
+
+    def test_copy_scale_transfers_pointer_probability_to_vocabulary(self):
+        config = SixLayerConfig(vocab_size=8, d_model=16)
+        copy = SourceCopyHead(config)
+        features = torch.zeros(1, 1, config.d_model)
+        logits = torch.zeros(1, 1, config.vocab_size)
+        tokens = torch.tensor([[4]])
+        allowed = torch.ones(1, 1, 1, dtype=torch.bool)
+        with torch.no_grad():
+            copy.gate.bias.zero_()
+            for scale in (1., .5, 0.):
+                expected = torch.full_like(logits, (1. - .5 * scale) / config.vocab_size)
+                expected[..., 4] += .5 * scale
+                actual = copy(features, logits, features, tokens, allowed, copy_scale=scale).exp()
+                torch.testing.assert_close(actual, expected)
+
+    def test_reports_a_copied_edit_separately_from_retain(self):
+        source = 'Keep this phrase.'
+        with tempfile.TemporaryDirectory() as directory:
+            tokenizer = build_subword_tokenizer([dict(source=source, target=source)], Path(directory))
+            config = config_for(tokenizer)
+            base, bos, eos = config.text_vocab_size, config.bos_token_id, config.eos_token_id
+            payload = tokenizer.encode('Keep', add_special_tokens=False)
+            copied_edit = [bos, bos, base, base + 1, *payload, eos]
+            retain = [bos, bos, eos] + [config.pad_token_id] * (len(copied_edit) - 3)
+            model = SimpleNamespace(config=config, generate=lambda **kwargs: torch.tensor([retain, copied_edit]))
+            inputs = tokenizer([source, source], return_tensors='pt')
+            results = generate_predictions(model, tokenizer, [source, source], inputs, 24)
+            self.assertEqual([row['prediction'] for row, _ in results], [source, source])
+            self.assertEqual([row['edit_status'] for row, _ in results], ['retain', 'noop_edit'])
+
     def test_identifies_protected_changes_in_raw_edits(self):
         cases = [
             ('The method uses 12 samples.', 'The method uses 13 samples.', 'changed_numbers'),
@@ -118,22 +158,26 @@ class SpanEditTests(unittest.TestCase):
             args = parser().parse_args(['--data', str(root), '--output', str(output), '--word-data', str(words),
                                         '--init-checkpoint', str(parent), '--span-edits', '--device', 'cpu',
                                         '--steps', '1', '--batch-size', '1', '--max-length', '24',
-                                        '--checkpoint-selection', 'final'])
+                                        '--checkpoint-selection', 'final', '--span-payload-weight', '2'])
             with contextlib.redirect_stdout(io.StringIO()):
                 result = run(args)
                 metrics = evaluate_checkpoint(evaluation_parser().parse_args([
                     '--data', str(root), '--checkpoint', str(output), '--split', 'validation',
-                    '--device', 'cpu', '--max-new-tokens', '26']))
+                    '--device', 'cpu', '--max-new-tokens', '26', '--span-copy-scale', '.5']))
             saved, _, _ = load_checkpoint(output, 'cpu')
             self.assertEqual(saved.config.text_vocab_size, len(tokenizer))
             self.assertEqual(saved.config.edit_position_count, 25)
             self.assertEqual(result['added_edit_boundary_embeddings'], 25)
+            self.assertEqual(result['span_payload_weight'], 2.)
             self.assertEqual(before, (parent/'weights.pt').read_bytes())
-            evaluated, = read_rows(output/'evaluation'/'validation-26'/'predictions.jsonl')
-            single = rewrite_neural(row['source'], None, output, 'cpu', max_new_tokens=26)
+            evaluated, = read_rows(output/'evaluation'/'validation-26-copy-scale-0.5'/'predictions.jsonl')
+            single = rewrite_neural(row['source'], None, output, 'cpu', max_new_tokens=26, span_copy_scale=.5)
             self.assertEqual(single['prediction'], row['source'] if single['fallback'] else evaluated['prediction'])
             self.assertEqual(single['edits'], [] if single['fallback'] else evaluated['edits'])
             self.assertIn('edit_error', evaluated)
             self.assertEqual(single['fact_error'], evaluated['fact_error'])
+            self.assertEqual(single['edit_status'], evaluated['edit_status'])
             self.assertIn('fact_error_counts', metrics)
+            self.assertEqual(metrics['span_copy_scale'], .5)
+            self.assertEqual(sum(metrics['edit_status_counts'].values()), 1)
             self.assertNotIn('candidate', single)

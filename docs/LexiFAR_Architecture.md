@@ -34,14 +34,19 @@ The supervised program aligns the source and reference at these unit boundaries.
 
 ## Train once and generate the final rewrite
 
-Run from the repository root in PowerShell. The default training config replaces the checkpoint and training logs in the selected output directory when rerun.
+Run these PowerShell blocks from an installed checkout. They set the path to `P:\MLProject`. Adjust the first `Set-Location` if your checkout is elsewhere. The v6 config replaces the checkpoint and training logs in the selected output directory when rerun. [Environment setup](Environment_Setup.md)
 
 ```powershell
-$python = '.\.venv\Scripts\python.exe'
-$checkpoint = 'runs/six_layer_joint_v6_edits'
-$sentence = 'The proposed method gets better results than the baseline.'
-& $python scripts/train_six_layer.py --output $checkpoint
-& $python -m academic_rewriter.rewrite --checkpoint $checkpoint --text $sentence
+& {
+    Set-Location -LiteralPath 'P:\MLProject' -ErrorAction Stop
+    $python = '.\.venv\Scripts\python.exe'
+    $checkpoint = 'runs/six_layer_joint_v6_edits'
+    $sentence = 'The proposed method gets better results than the baseline.'
+    & $python scripts/train_six_layer.py --config 'configs/six_layer_experiment.json' --output $checkpoint
+    if ($LASTEXITCODE -ne 0) { throw 'v6 training failed. See the output above.' }
+    & $python -m academic_rewriter.rewrite --checkpoint $checkpoint --text $sentence --max-new-tokens 192
+    if ($LASTEXITCODE -ne 0) { throw 'Single-sentence rewriting failed. See the output above.' }
+}
 ```
 
 Joint checkpoints record the stage layout, feature fusion, replacement vocabulary, candidate guidance, source copying and contextual edits in `six_layer_config.json`. Earlier checkpoints load their saved output and guidance settings. The single-sentence command returns the source if the rewrite is empty, lacks an end token or changes the numeric strings.
@@ -49,13 +54,40 @@ Joint checkpoints record the stage layout, feature fusion, replacement vocabular
 ## Test the fused rewrite
 
 ```powershell
-& $python -m academic_rewriter.test --checkpoint $checkpoint --split test --limit 0
-& $python -m unittest discover -s tests -p test_joint_rewriter.py -v
+& {
+    Set-Location -LiteralPath 'P:\MLProject' -ErrorAction Stop
+    $python = '.\.venv\Scripts\python.exe'
+    $data = 'data/academic-pairs-v1'
+    $checkpoint = 'runs/six_layer_joint_v6_edits'
+    if (-not (Test-Path -LiteralPath "$checkpoint/result.json" -PathType Leaf -ErrorAction Stop)) {
+        throw 'Complete v6 training before evaluation.'
+    }
+    & $python -m unittest discover -s tests -p 'test_joint_rewriter.py' -v
+    if ($LASTEXITCODE -ne 0) { throw 'Joint rewriter tests failed. See the output above.' }
+    foreach ($split in @('validation', 'test')) {
+        & $python -m academic_rewriter.test --checkpoint $checkpoint --data $data --split $split --batch-size 8 --max-new-tokens 192 --limit 0 --output "$checkpoint/evaluation/${split}-192"
+        if ($LASTEXITCODE -ne 0) { throw "v6 $split evaluation failed. See the output above." }
+    }
+}
 ```
 
-The test command evaluates all 87 real test pairs by default. Use `--split validation` for the 98 validation pairs. The CSV and JSONL each contain one `prediction` per input, aligned with the source and human reference. JSONL also includes token and generation diagnostics. `metrics.json` reports final sentence metrics and a copy-input baseline. The batch test exports raw fused generations for diagnostics. The existing real splits have already been inspected and support exploratory comparison.
+The test commands evaluate all 98 validation pairs and all 87 real test pairs. The CSV and JSONL each contain one `prediction` per input, aligned with the source and human reference. JSONL also includes token and generation diagnostics. `metrics.json` reports final sentence metrics and a copy-input baseline. The batch test exports raw fused generations for diagnostics. The existing real splits have already been inspected and support exploratory comparison.
 
-To audit internal word decisions, pass `--word-test .cache/reviewed_word_pairs.jsonl` with distinct, independently reviewed real cases. Each row needs `source` and `target`. For retain cases, include `focus` and, for repeated words, `focus_start`. The result provides aggregate focused replacement accuracy, unnecessary edit rate and exact sentence accuracy. The included word corpus is training only.
+To audit internal word decisions, first place distinct, independently reviewed real cases at `.cache/reviewed_word_pairs.jsonl`. Each row needs `source` and `target`. For retain cases, include `focus` and, for repeated words, `focus_start`. The result provides aggregate focused replacement accuracy, unnecessary edit rate and exact sentence accuracy. The included word corpus is training only.
+
+```powershell
+& {
+    Set-Location -LiteralPath 'P:\MLProject' -ErrorAction Stop
+    $python = '.\.venv\Scripts\python.exe'
+    $checkpoint = 'runs/six_layer_joint_v6_edits'
+    $wordTest = '.cache/reviewed_word_pairs.jsonl'
+    if (-not (Test-Path -LiteralPath $wordTest -PathType Leaf -ErrorAction Stop)) {
+        throw "Place the independently reviewed word pairs at $wordTest."
+    }
+    & $python -m academic_rewriter.test --checkpoint $checkpoint --data 'data/academic-pairs-v1' --split test --batch-size 8 --max-new-tokens 192 --limit 0 --word-test $wordTest --output "$checkpoint/evaluation/test-192-word-test"
+    if ($LASTEXITCODE -ne 0) { throw 'Word evaluation failed. See the output above.' }
+}
+```
 
 ## Evaluation and loss informed by Doolittle
 

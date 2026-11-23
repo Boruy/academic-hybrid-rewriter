@@ -221,7 +221,7 @@ class SourceCopyHead(nn.Module):
             allowed = allowed & (tokens != token_id)
         return allowed
 
-    def forward(self, features, logits, keys, tokens, allowed, source_bias=None):
+    def forward(self, features, logits, keys, tokens, allowed, source_bias=None, *, copy_scale=1.):
         has_source = allowed.any(dim=-1, keepdim=True)
         scores = (self.query(features) @ keys.transpose(-1, -2)) * self.scale
         if source_bias is not None:
@@ -229,11 +229,16 @@ class SourceCopyHead(nn.Module):
         scores = scores.masked_fill(~allowed, -torch.inf).masked_fill(~has_source, 0.)
         attention = scores.softmax(dim=-1, dtype=torch.float32).masked_fill(~allowed, 0.)
         gate = self.gate(features).float()
-        vocabulary_weight = (-gate).sigmoid().masked_fill(~has_source, 1.)
-        vocabulary = logits.softmax(dim=-1, dtype=torch.float32) * vocabulary_weight
+        copy_weight = gate.sigmoid()
+        vocabulary_weight = (-gate).sigmoid()
+        if copy_scale != 1.:
+            # Return the removed pointer mass to vocabulary generation.
+            vocabulary_weight = vocabulary_weight + (1. - copy_scale) * copy_weight
+            copy_weight = copy_weight * copy_scale
+        vocabulary = logits.softmax(dim=-1, dtype=torch.float32) * vocabulary_weight.masked_fill(~has_source, 1.)
         # Repeated source tokens share one vocabulary entry and add their mass.
         token_ids = tokens[:, None, :].expand_as(attention)
-        combined = vocabulary.scatter_add(-1, token_ids, gate.sigmoid() * attention)
+        combined = vocabulary.scatter_add(-1, token_ids, copy_weight * attention)
         return combined.clamp_min(torch.finfo(combined.dtype).tiny).log()
 
 
@@ -503,29 +508,31 @@ class SixLayerRewriter(nn.Module):
         return outputs
 
     def sequence_losses(self, input_ids, attention_mask, labels, word_guidance=None, label_weights=None,
-                        edit_labels=None):
+                        edit_labels=None, edit_label_weights=None):
         """Compute the auxiliary sentence and final rewrite objectives."""
         if self.config.span_edits:
             return {depth: self(input_ids, attention_mask, labels, depth=depth, word_guidance=word_guidance,
-                                label_weights=label_weights, edit_labels=edit_labels).loss
+                                label_weights=label_weights, edit_labels=edit_labels,
+                                edit_label_weights=edit_label_weights).loss
                     for depth in self.sentence_depths}
         outputs = self._labeled_outputs(input_ids, attention_mask, labels, self.sentence_depths,
                                         word_guidance, label_weights)
         return {depth: output.loss for depth, output in outputs.items()}
 
     def forward(self, input_ids, attention_mask, labels=None, *, depth=None, word_guidance=None,
-                label_weights=None, edit_labels=None, **kwargs):
+                label_weights=None, edit_labels=None, edit_label_weights=None, **kwargs):
         depth = self._resolve_depth(depth)
         if self.config.span_edits and depth == 'deep' and (labels is not None or edit_labels is not None):
             if edit_labels is None or label_weights is not None:
                 raise ValueError('The final span-edit loss requires edit labels without sentence token weights')
             labels = edit_labels
+            label_weights = edit_label_weights
         if labels is None:
             return CausalLMOutput(logits=self.sequence_logits(input_ids, attention_mask, depth=depth,
                                                             word_guidance=word_guidance))
         return self._labeled_outputs(input_ids, attention_mask, labels, (depth,), word_guidance, label_weights)[depth]
 
-    def step(self, tokens, positions, segments, valid, states, *, depth=None, word_guidance=None):
+    def step(self, tokens, positions, segments, valid, states, *, depth=None, word_guidance=None, copy_scale=1.):
         depth = self._resolve_depth(depth)
         hidden = self.embedding_dropout(self.token_embedding(tokens) +
                                         self.position_embedding(positions) +
@@ -554,15 +561,22 @@ class SixLayerRewriter(nn.Module):
                                for past, current in zip(states[layer_count], memory, strict=True))
             keys, source_tokens, allowed, source_bias = memory
             logits = self.copy_head(features[:, None], logits[:, None], keys, source_tokens, allowed[:, None],
-                                    source_bias if self.config.contextual_edits else None)[:, 0]
+                                    source_bias if self.config.contextual_edits else None, copy_scale=copy_scale)[:, 0]
             updated.append(memory)
         return logits, updated
+
+    def validate_span_copy_scale(self, scale):
+        if not 0. <= scale <= 1.:
+            raise ValueError('span-copy-scale must be between 0 and 1')
+        if scale != 1. and (not self.config.span_edits or self.copy_head is None):
+            raise ValueError('span-copy-scale requires a span-edit checkpoint with source copying')
 
     @torch.no_grad()
     def generate(self, input_ids, attention_mask, max_new_tokens=128, num_beams=1,
                  do_sample=False, early_stopping=False, *, depth=None, word_guidance=None,
-                 edit_unit_counts=None, **kwargs):
+                 edit_unit_counts=None, span_copy_scale=1., **kwargs):
         depth = self._resolve_depth(depth)
+        self.validate_span_copy_scale(span_copy_scale)
         if self.final_fusion is not None and depth != 'deep':
             raise ValueError('This checkpoint generates only the fused final rewrite')
         self._validate_guidance(input_ids, word_guidance)
@@ -606,5 +620,5 @@ class SixLayerRewriter(nn.Module):
             if finished.all():
                 break
             logits, states = self.step(token, lengths + index, torch.ones_like(lengths),
-                                        ~finished, states, depth=depth)
+                                        ~finished, states, depth=depth, copy_scale=span_copy_scale)
         return torch.stack(output, 1)

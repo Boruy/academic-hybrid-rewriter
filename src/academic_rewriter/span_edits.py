@@ -50,6 +50,14 @@ def edit_labels(rows, tokenizer, config, max_length):
     return labels
 
 
+def span_payload_weights(labels, config, weight):
+    """Emphasize inserted and replacement text in the final edit program."""
+    payload = (labels >= 0) & (labels < config.text_vocab_size)
+    for control in (config.pad_token_id, config.bos_token_id, config.eos_token_id):
+        payload &= labels != control
+    return (labels != -100).float() + (weight - 1.) * payload.float()
+
+
 def apply_edit_program(source, tokens, tokenizer, config):
     """Validate the complete program before copying source slices and inserting replacements."""
     end = len(tokens)

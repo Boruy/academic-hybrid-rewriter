@@ -9,7 +9,7 @@ from .joint_words import WordTask, edit_target_weights, word_replacements
 from .lexical import read_lexical_training
 from .rewrite import generate_predictions
 from .six_layer import CHECKPOINT_DEPTHS, SixLayerConfig, SixLayerRewriter
-from .span_edits import edit_labels
+from .span_edits import edit_labels, span_payload_weights
 
 def read_rows(path): return [json.loads(s) for s in Path(path).read_text(encoding='utf8').splitlines() if s.strip()]
 
@@ -55,7 +55,7 @@ def build_subword_tokenizer(rows,out):
     result.save_pretrained(out); return result
 
 def _prepare_batch(rows, tokenizer, device, max_length, word_task=None, *, model_config=None,
-                   supervise_edits=False, edit_weight=1.):
+                   supervise_edits=False, edit_weight=1., span_payload_weight=1.):
     sources = [r['source'] for r in rows]
     span_mode = model_config is not None and model_config.span_edits
     limits = {} if span_mode else dict(truncation=True, max_length=max_length)
@@ -69,6 +69,8 @@ def _prepare_batch(rows, tokenizer, device, max_length, word_task=None, *, model
         if max(x['input_ids'].size(1), labels.size(1)) > max_length:
             raise ValueError('Span editing requires the complete source and reference within max-length')
         inputs['edit_labels'] = edit_labels(rows, tokenizer, model_config, max_length).to(device)
+        if span_payload_weight > 1.:
+            inputs['edit_label_weights'] = span_payload_weights(inputs['edit_labels'], model_config, span_payload_weight)
     if edit_weight > 1.:
         inputs['label_weights'] = edit_target_weights(rows, y, edit_weight, tokenizer.eos_token_id).to(device)
     edit_loss = None
@@ -102,6 +104,8 @@ def run(args):
         raise ValueError('word-loss-weight must be finite and positive')
     if not math.isfinite(args.edit_target_weight) or args.edit_target_weight < 1.:
         raise ValueError('edit-target-weight must be finite and at least 1')
+    if not math.isfinite(args.span_payload_weight) or args.span_payload_weight < 1.:
+        raise ValueError('span-payload-weight must be finite and at least 1')
     grammar_per_batch = args.grammar_pairs_per_batch
     if grammar_per_batch < 0 or bool(args.grammar_data) != bool(grammar_per_batch):
         raise ValueError('Supply --grammar-data with a positive --grammar-pairs-per-batch')
@@ -174,6 +178,8 @@ def run(args):
             raise ValueError('Continue a span-edit checkpoint with span edits enabled')
     depth = six_config.depth if parent else args.depth or 'joint'
     span_mode = bool(args.span_edits) or (six_config.span_edits if parent else False)
+    if args.span_payload_weight != 1. and not span_mode:
+        raise ValueError('span-payload-weight requires span edits')
     upgrade_spans = parent is not None and span_mode and not six_config.span_edits
     generation_budget = args.max_length + (2 if span_mode else 0)
     if span_mode:
@@ -245,7 +251,8 @@ def run(args):
 
     def train_objective(rows, words):
         inputs, edit_loss = _prepare_batch(rows, tokenizer, device, args.max_length, word_task, model_config=six_config,
-                                          supervise_edits=True, edit_weight=args.edit_target_weight)
+                                          supervise_edits=True, edit_weight=args.edit_target_weight,
+                                          span_payload_weight=args.span_payload_weight)
         sentence = model.sequence_losses(**inputs)
         loss = sum(sentence.values()) / len(sentence)
         terms = {f'{name}_cross_entropy': value for name, value in sentence.items()}
@@ -414,6 +421,8 @@ def run(args):
     if manifest.exists():result['training_data_manifest_sha256']=file_hash(manifest)
     result.update(validation_examples_max_new_tokens=generation_budget, span_edits=six_config.span_edits,
                   added_edit_boundary_embeddings=six_config.edit_position_count if upgrade_spans else 0)
+    if span_mode:
+        result['span_payload_weight'] = args.span_payload_weight
     torch.save(model.state_dict(),out/'weights.pt')
     for name, data in [('training_log.json', log), ('validation_log.json', validation_history),
                        ('validation_examples.json', predictions)]:
@@ -447,6 +456,7 @@ def parser():
     p.add_argument('--grammar-data', help='Optional synthetic grammar pairs for training')
     p.add_argument('--grammar-pairs-per-batch', type=int, default=0, help='Grammar slots within the synthetic half of a balanced batch')
     p.add_argument('--edit-target-weight', type=float, default=1., help='P4 target multiplier at aligned edits and deletion boundaries')
+    p.add_argument('--span-payload-weight', type=float, default=1., help='Training-only P4 weight on span replacement text')
     p.add_argument('--word-guidance', choices=['position', 'candidates'],
                    help='Fresh joint runs default to candidates; continuations use the saved setting')
     p.add_argument('--source-copy', action=argparse.BooleanOptionalAction,

@@ -43,7 +43,7 @@ P4 对原文位置计算注意力，通过学习得到的权重混合复制概�
 
 真实句对扩充首批使用 arXivEdits 冻结训练分区中的 118 个初筛候选，其中 19 个已由 AI 初步列为优先复核项。两份训练组人工审阅包目前均为空。两位独立评审一致批准后，构建脚本把真实修订追加到本地 `.cache/academic-pairs-v2`，逐字节复制原有 98 条验证样本和 87 条测试样本，并生成单独的 v8 训练配置。当前新增获批句对为 0。[审阅和构建命令](Dataset_Card.md#reviewed-training-expansion)
 
-万级扩充实验使用 arXivEdits 已固定指纹的上游训练对齐文件。v3 筛选相邻版本的一对一作者修订，检查数字、否定、限定词、缩写、公式和引文占位符。只读清点得到来自 434 篇论文的 9,786 对初筛修订，其中词语修订 8,331 对，标点或大小写修订 1,455 对。加上现有 491 对，编码检查前有 10,277 对真实训练样本。构建时用 v1 冻结训练集及词级、语法训练补充集拟合 BPE，核对 192 token 长度上限与编辑编码。达到至少 10,000 对真实样本后，脚本在 `.cache/academic-pairs-v3` 保存通过核对的分词器和训练配置，并逐字节复制原验证和测试分组。训练会校验并加载已保存的分词器。新增项的人工确认字段为 `false`。[数据构建](Dataset_Card.md#author-revision-expansion) · [v8 对照命令](LexiFAR_Training.md#train-on-the-author-revision-expansion)
+万级扩充实验使用 arXivEdits 已固定指纹的上游训练对齐文件。v3 筛选相邻版本的一对一作者修订，检查数字、否定、限定词、缩写、公式和引文占位符。只读清点得到来自 434 篇论文的 9,786 对初筛修订，其中词语修订 8,331 对，标点或大小写修订 1,455 对。加上现有 491 对，编码检查前有 10,277 对真实训练样本。构建时用 v1 冻结训练集及词级、语法训练补充集拟合 BPE，核对 192 token 长度上限与编辑编码。本地 v3 清单记录 10,264 对真实训练样本和 12,000 对合成训练样本。构建在 `.cache/academic-pairs-v3` 保存通过核对的分词器和训练配置，并逐字节复制原验证和测试分组。训练会校验并加载已保存的分词器。新增项的人工确认字段为 `false`。[数据构建](Dataset_Card.md#author-revision-expansion) · [v8 对照命令](LexiFAR_Training.md#train-on-the-author-revision-expansion)
 
 ## 怎么训练和评价
 
@@ -55,33 +55,56 @@ P4 对原文位置计算注意力，通过学习得到的权重混合复制概�
 
 ## 在 PowerShell 中运行
 
-从仓库根目录操作，需要 Python 3.10 或以上。首次安装运行下面的命令。已有可用的离线环境可以加上 `-Offline`。详见[环境配置](Environment_Setup.md)。
+需要 Python 3.10 或以上。每段命令都从 `P:\MLProject` 开始，可分别复制到 PowerShell 执行。仓库在其他位置时，修改该段的第一条 `Set-Location`。首次安装使用下面的命令。[环境配置](Environment_Setup.md)
 
 ```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -File scripts/setup.ps1
+& {
+    Set-Location -LiteralPath 'P:\MLProject' -ErrorAction Stop
+    & powershell.exe -NoProfile -ExecutionPolicy Bypass -File 'scripts/setup.ps1'
+    if ($LASTEXITCODE -ne 0) { throw '环境安装失败，请查看上面的错误。' }
+}
 ```
 
-下面从随机权重联合训练，再用同一个检查点试用与测试。默认运行目录为 `runs/six_layer_joint_v6_edits`，在同一目录重跑会覆盖权重和训练日志。训练完整结束后写入 `result.json`，表示检查点可用于测试。
+本机已有依赖且需要离线注册项目时，运行这一段。
 
 ```powershell
-$python = '.\.venv\Scripts\python.exe'
-$runDir = 'runs/six_layer_joint_v6_edits'
-$sentence = 'The proposed method gets better results than the baseline.'
-
-# 联合训练一个检查点
-& $python scripts/train_six_layer.py --output $runDir
-
-# 生成并测试融合后的最终句子
-& $python -m academic_rewriter.rewrite --checkpoint $runDir --text $sentence
-& $python -m academic_rewriter.test --checkpoint $runDir --split validation --limit 0
-& $python -m academic_rewriter.test --checkpoint $runDir --split test --limit 0
+& {
+    Set-Location -LiteralPath 'P:\MLProject' -ErrorAction Stop
+    & powershell.exe -NoProfile -ExecutionPolicy Bypass -File 'scripts/setup.ps1' -Offline
+    if ($LASTEXITCODE -ne 0) { throw '离线环境配置失败，请查看上面的错误。' }
+}
 ```
 
-训练终端默认每步打印总损失、近 20 步平均损失、P3 和 P4 的句级交叉熵、词级交叉熵、编辑位置损失、学习率和耗时，并显示验证的开始与结果。加 `--log-every 10` 可改为每 10 步打印一次。`training_progress.jsonl` 保存逐步记录。
+### v6 训练、单句改写与全量评估
 
-`--limit 0` 导出指定分组的全部样本。`evaluation/validation-192/` 和 `evaluation/test-192/` 中的 `predictions.csv` 与 `predictions.jsonl` 按行对齐原文、人工参考和最终改写。先看验证集里 LayoutLM 介词修改和 7,000 份文档这两条，确认模型保留专名、数量和原来的技术关系，再复核其他句子是否出现重复和事实变化。`metrics.json` 同时记录是否启用原文复制及候选词引导。准备好独立人工复核的词级样本后可加 `--word-test .cache/reviewed_word_pairs.jsonl`。训练权重和预测保存在本地忽略目录。
+下面从随机权重训练 v6，再用同一个检查点试用与评估。运行目录为 `runs/six_layer_joint_v6_edits`，在同一目录重跑会覆盖权重和训练日志。训练完整结束后写入 `result.json`。
 
-在同一 v6 检查点的验证命令上加 `--no-word-guidance`，输出会写入 `evaluation/validation-192-no-word-guidance/`。两次按样本 ID 对照原始预测，可检查 E1–E3 参与生成时，局部编辑是否更完整，周围原文是否保留。要比较候选词向量的贡献，可以用 `--word-guidance position --output runs/six_layer_joint_v6_edits_position` 训练位置引导的对照检查点。详见[训练和测试命令](LexiFAR_Training.md#evaluate-the-entire-split)。
+```powershell
+& {
+    Set-Location -LiteralPath 'P:\MLProject' -ErrorAction Stop
+    $python = '.\.venv\Scripts\python.exe'
+    $config = 'configs/six_layer_experiment.json'
+    $data = 'data/academic-pairs-v1'
+    $run = 'runs/six_layer_joint_v6_edits'
+    $sentence = 'The proposed method gets better results than the baseline.'
+    & $python scripts/train_six_layer.py --config $config --output $run --print-command
+    if ($LASTEXITCODE -ne 0) { throw 'v6 配置校验失败，请查看上面的错误。' }
+    & $python scripts/train_six_layer.py --config $config --output $run
+    if ($LASTEXITCODE -ne 0) { throw 'v6 训练失败，请查看上面的错误。' }
+    & $python -m academic_rewriter.rewrite --checkpoint $run --text $sentence --max-new-tokens 192
+    if ($LASTEXITCODE -ne 0) { throw '单句改写失败，请查看上面的错误。' }
+    foreach ($split in @('validation', 'test')) {
+        & $python -m academic_rewriter.test --checkpoint $run --data $data --split $split --batch-size 8 --max-new-tokens 192 --limit 0 --output "$run/evaluation/${split}-192"
+        if ($LASTEXITCODE -ne 0) { throw "v6 在 $split 的评估失败，请查看上面的错误。" }
+    }
+}
+```
+
+训练终端默认每步打印总损失、近 20 步平均损失、P3 和 P4 的句级交叉熵、词级交叉熵、编辑位置损失、学习率和耗时，并显示验证的开始与结果。启动器的 `--log-every` 选项控制终端打印间隔，`training_progress.jsonl` 保存逐步记录。
+
+`--limit 0` 导出指定分组的全部样本。`evaluation/validation-192/` 和 `evaluation/test-192/` 中的 `predictions.csv` 与 `predictions.jsonl` 按行对齐原文、人工参考和最终改写。先看验证集里 LayoutLM 介词修改和 7,000 份文档这两条，确认模型保留专名、数量和原来的技术关系，再复核其他句子是否出现重复和事实变化。`metrics.json` 同时记录是否启用原文复制及候选词引导。训练权重和预测保存在本地忽略目录。使用已完成的检查点可直接评估。[全量句子评估](LexiFAR_Training.md#evaluate-the-entire-split) · [独立词级评估](LexiFAR_Architecture.md#test-the-fused-rewrite)
+
+同一 v6 检查点关闭词引导后，输出写入 `evaluation/validation-192-no-word-guidance/`。两次按样本 ID 对照原始预测，可检查 E1–E3 参与生成时，局部编辑是否更完整，周围原文是否保留。位置引导对照使用单独的 `runs/six_layer_joint_v6_edits_position` 检查点。[引导对照完整命令](LexiFAR_Training.md#evaluate-the-entire-split)
 
 ### v8 整词编辑
 
@@ -89,7 +112,55 @@ $sentence = 'The proposed method gets better results than the baseline.'
 
 `configs/six_layer_span_edits.json` 从随机权重训练全部六层、词级模块和 193 个编辑边界嵌入，分词器用训练语料重新拟合。完整句对训练池有 12,555 条，每批抽取 8 条真实修订、6 条原合成句对和 2 条语法样本。整轮训练 2,000 步，学习率为 `3e-4`，每 250 步验证一次，最终检查点写入 `runs/six_layer_joint_v8_spans_scratch`。验证时按字符偏移查看 `edits`，并结合 `edit_error` 判断模型是主动保留还是编辑记录未通过校验。[手动训练命令](LexiFAR_Training.md#whole-word-span-editing)
 
-v1 从零版的最低验证损失出现在第 500 步。v3 可在训练入口选择 `--checkpoint-selection best-validation --early-stopping-patience 4`，在连续四次验证无改善时停止，并保留 P4 验证损失最低的权重。按新的保护规则只读检查该从零版的 98 条预测，标记出 7 条技术标识符变化、1 条文字数词变化和 1 条数量比较变化。漏改、错改和坏词仍需核对扩充语料训练后的逐句输出。[v3 最优权重命令](LexiFAR_Training.md#keep-the-best-validation-checkpoint)
+v1 从零版的最低验证损失出现在第 500 步。按新的保护规则只读检查该从零版的 98 条预测，标记出 7 条技术标识符变化、1 条文字数词变化和 1 条数量比较变化。用 v3 的逐句预测继续核对漏改、错改和坏词。
+
+### v3 万级训练集构建、最优权重训练与验证
+
+这段命令使用本地对齐文件 `.cache/arxivedits/train_alignment.json`，检查回归用例，按需构建 v3，然后训练并导出全部 98 条验证预测。训练在连续四次验证无改善时停止，并保留 P4 验证损失最低的权重。缺少对齐文件时，先用数据卡里的完整命令下载并校验。[v3 数据下载和构建](Dataset_Card.md#author-revision-expansion)
+
+```powershell
+& {
+    Set-Location -LiteralPath 'P:\MLProject' -ErrorAction Stop
+    $python = '.\.venv\Scripts\python.exe'
+    $alignment = '.cache/arxivedits/train_alignment.json'
+    $data = '.cache/academic-pairs-v3'
+    $config = "$data/experiment.json"
+    $run = 'runs/six_layer_joint_v8_academic_pairs_v3_best'
+    & $python -m unittest discover -s tests -p 'test_academic_pair_expansion.py' -v
+    if ($LASTEXITCODE -ne 0) { throw '数据扩充回归测试失败，请查看上面的错误。' }
+    & $python -m unittest discover -s tests -p 'test_span_edits.py' -v
+    if ($LASTEXITCODE -ne 0) { throw '整词编辑回归测试失败，请查看上面的错误。' }
+    if (-not (Test-Path -LiteralPath $config -PathType Leaf -ErrorAction Stop)) {
+        if (-not (Test-Path -LiteralPath $alignment -PathType Leaf -ErrorAction Stop)) {
+            throw '请按 docs/Dataset_Card.md 下载 v3 训练对齐文件。'
+        }
+        & $python scripts/expand_academic_pairs.py --version 3 --author-revisions $alignment
+        if ($LASTEXITCODE -ne 0) { throw 'v3 数据构建失败，请查看上面的原始错误。' }
+    }
+    & $python scripts/train_six_layer.py --config $config --output $run --checkpoint-selection best-validation --early-stopping-patience 4 --print-command
+    if ($LASTEXITCODE -ne 0) { throw 'v3 配置校验失败，请查看上面的错误。' }
+    & $python scripts/train_six_layer.py --config $config --output $run --checkpoint-selection best-validation --early-stopping-patience 4
+    if ($LASTEXITCODE -ne 0) { throw 'v3 训练失败，请查看上面的错误。' }
+    & $python -m academic_rewriter.test --checkpoint $run --data $data --split validation --batch-size 8 --max-new-tokens 194 --limit 0 --output "$run/evaluation/validation-194"
+    if ($LASTEXITCODE -ne 0) { throw 'v3 验证集评估失败，请查看上面的错误。' }
+}
+```
+
+用验证集选好检查点后，单独运行下面的完整测试集评估。使用固定步数检查点时，将该段的 `$run` 设为 `runs/six_layer_joint_v8_academic_pairs_v3`。[v3 固定步数对照](LexiFAR_Training.md#save-the-final-update-for-the-fixed-step-comparison) · [按已完成的固定步数检查点导出验证预测](LexiFAR_Training.md#export-validation-predictions-from-an-existing-v3-run)
+
+```powershell
+& {
+    Set-Location -LiteralPath 'P:\MLProject' -ErrorAction Stop
+    $python = '.\.venv\Scripts\python.exe'
+    $data = '.cache/academic-pairs-v3'
+    $run = 'runs/six_layer_joint_v8_academic_pairs_v3_best'
+    if (-not (Test-Path -LiteralPath "$run/result.json" -PathType Leaf -ErrorAction Stop)) {
+        throw "请先完成 $run 的 v3 训练。"
+    }
+    & $python -m academic_rewriter.test --checkpoint $run --data $data --split test --batch-size 8 --max-new-tokens 194 --limit 0 --output "$run/evaluation/test-194"
+    if ($LASTEXITCODE -ne 0) { throw 'v3 测试集评估失败，请查看上面的错误。' }
+}
+```
 
 ## 已有运行的逐条结果
 
@@ -97,11 +168,19 @@ v1 从零版的最低验证损失出现在第 500 步。v3 可在训练入口选
 
 `runs/six_layer_joint_v8_spans` 从 v7 续训 1,000 步，已保存检查点与验证集逐句结果。v1 数据上的从零版在 `runs/six_layer_joint_v8_spans_scratch` 跑完 2,000 步。最低 P4 验证交叉熵为 5.564，最终权重对应的验证交叉熵为 6.566。98 条现有验证预测的 ROUGE-L 为 0.747，原文复制基线为 0.823。
 
+### v3 的漏改与只删除问题
+
+`runs/six_layer_joint_v8_academic_pairs_v3` 已完成 2,000 步并导出 98 条验证预测。v3 与 v1 从零版的分词器和验证分组指纹一致。v3 的 P4 验证交叉熵每次验证都下降，最终为 4.853。预测的 ROUGE-L 为 0.800，复制原文基线为 0.823。按句比较，66 条低于复制基线，15 条高于复制基线，17 条持平。
+
+11 条预测逐字等于原文，渲染后的编辑记录没有改变原句。另有 33 条只删除，没有插入或替换。模型全组只生成 3 处插入，人工参考按整词对齐有 22 处。`00a677997fbda9ac` 中人工把 `in LayoutLM` 改为 `into LayoutLM`，模型保留了介词并删掉了 `the`。两条原始预测有技术标识符变化。单句入口会按事实保护规则回退这些预测。
+
+两个 v8 实验的损失权重相同，依次为 P3 句级 0.5、P4 编辑程序 0.5、词级 0.25 和编辑位置 0.25。原文复制由模型学出的门控控制。新命令用同一检查点和验证集对照复制系数 1.0 与 0.5，并分别记录主动保留、编辑后逐字不变和编辑失败。续训对照用原始权重与两倍替换内容权重，统一按未加权的 P4 验证交叉熵选检查点。[复制门控对照完整命令](LexiFAR_Training.md#compare-source-copy-settings-on-the-completed-v3-checkpoint) · [替换内容权重续训完整命令](LexiFAR_Training.md#compare-span-replacement-weighting-during-continuation)
+
 ### v6 的介词与断词问题
 
 对齐 `runs/six_layer_joint_v6_edits` 的两份验证集预测。样本 `065afd42f64dbb51` 启用引导时生成 `the phys of theppearance` 和 `refer to referects they`，关闭引导时仍在 `physical a objects` 处断词。两份输出都保留 `in LayoutLM`，也都漏掉 `corpus this kind` 所需的 `of`。另一方面，样本 `4766dceaeff49be0` 启用引导时保留 `7,000`，关闭时变成 `7,000,000`。引导对部分原文保留有帮助，具体语法修改仍不稳定。
 
-按词和标点对齐 491 条真实训练修订，没有发现单独的 `in → into` 替换或单独插入 `of` 的例子。v7 在独立的 `grammar-edits-v1` 目录补入 64 条合成训练对，覆盖介词替换、插入、删冗余及正确表达的保留。用 `--config configs/six_layer_grammar_edits.json` 从 v6 继续 600 步，每批抽取 8 条真实、6 条原合成与 2 条语法样本。P4 对参考中需要替换、插入的子词和删除后的衔接位置使用三倍权重。原大语料及验证、测试分组按冻结指纹加载。手动复测以逐句预测为准。[语法续训命令](LexiFAR_Training.md#focused-grammar-continuation)
+按词和标点对齐 491 条真实训练修订，没有发现单独的 `in → into` 替换或单独插入 `of` 的例子。v7 在独立的 `grammar-edits-v1` 目录补入 64 条合成训练对，覆盖介词替换、插入、删冗余及正确表达的保留。v7 从完成的 v6 检查点继续 600 步，每批抽取 8 条真实、6 条原合成与 2 条语法样本。P4 对参考中需要替换、插入的子词和删除后的衔接位置使用三倍权重。原大语料及验证、测试分组按冻结指纹加载。手动复测以逐句预测为准。[语法续训完整命令](LexiFAR_Training.md#focused-grammar-continuation)
 
 ### v5 的原文复制结果
 
@@ -139,18 +218,26 @@ v1 从零版的最低验证损失出现在第 500 步。v3 可在训练入口选
 需要核验项目时，可在根目录手动执行以下命令。训练、推理、测试和其他项目脚本由用户执行，除非用户明确授权代跑。
 
 ```powershell
-.\.venv\Scripts\python.exe -m unittest discover -s tests -v
-powershell -NoProfile -ExecutionPolicy Bypass -File scripts/verify_integrity.ps1
+& {
+    Set-Location -LiteralPath 'P:\MLProject' -ErrorAction Stop
+    $python = '.\.venv\Scripts\python.exe'
+    & $python -m unittest discover -s tests -v
+    if ($LASTEXITCODE -ne 0) { throw '回归测试失败，请查看上面的错误。' }
+    & powershell.exe -NoProfile -ExecutionPolicy Bypass -File 'scripts/verify_integrity.ps1'
+    if ($LASTEXITCODE -ne 0) { throw '仓库完整性检查失败，请查看上面的错误。' }
+}
 ```
 
 ## 当前进度与维护
 
-v6 已保存同一检查点启用和停用引导的两份验证预测。v7 语法续训、基于 v7 的 v8 整词续训和 v1 数据上的 v8 从零版均已保存检查点。首次手动构建 v3 时，扩大语料后拟合的分词器令冻结训练样本 `f27493e24cec18cc` 超过 192 token。修复后的构建、训练与逐句对照待手动运行。独立词级评估、人工盲评与 MORL 对照仍待实测。
+v6 已保存同一检查点启用和停用引导的两份验证预测。v7 语法续训、基于 v7 的 v8 整词续训和 v1 数据上的 v8 从零版均已保存检查点。首次手动构建 v3 时，扩大语料后拟合的分词器令冻结训练样本 `f27493e24cec18cc` 超过 192 token。修复后用户已完成 v3 语料构建、固定步数训练和验证集导出。复制门控与替换内容权重对照待手动运行。独立词级评估、人工盲评与 MORL 对照仍待实测。
 
 以后每次完成一项项目修改，都要在同一提交里同步这份总览。更新受影响的章节，并在下面记录改动和实际验证情况。规则见[仓库维护说明](../AGENTS.md)。
 
 | 日期 | 改动 | 验证与状态 |
 | --- | --- | --- |
+| 2026-11-23 | 针对 v3 漏改、逐字不变和只删除的现象，增加替换内容加权训练、推理解码复制系数和编辑行为统计。 | 已复核 98 条已有验证预测、P4 验证曲线及冻结分组和分词器指纹。已静态核对入口和命令。回归测试、复制对照与续训待手动运行。 |
+| 2026-11-23 | 补全环境配置、数据构建、各版训练、单句改写和全量评估的 PowerShell 命令，补齐 v3 最优权重训练及独立测试集评估。 | 已静态核对 PowerShell 语法、参数、输入输出路径及文档链接。本地 v3 构建清单已核对，含 10,264 对真实训练样本。更新后的项目命令由用户运行。 |
 | 2026-11-23 | 修复 v3 构建时冻结训练样本超长的问题，用 v1 训练资料拟合并保存分词器，供构建检查和正式训练共用。 | 手动日志定位到 `f27493e24cec18cc`，用已保存的 v1 分词器只读测得源句 158、目标句 72 个 token。已静态核对修复，回归测试、构建和训练待手动运行。 |
 | 2026-11-23 | v8 单句输出增加数词、数量比较和技术标识符保护，批量结果记录触发原因，训练入口可选验证最优权重和早停。 | 已静态核对代码与冻结数据，对现有 98 条预测只读统计得到 9 条保护项变化。回归测试、v3 重训和逐句验证待手动运行。 |
 | 2026-11-23 | 增加 v3 万级作者修订扩充，接入冻结训练对齐、内容筛查与 v8 编码预检。 | 已静态核对代码、训练对齐来源、候选规模和冻结指纹。数据构建、回归测试与训练对照待手动运行。 |
