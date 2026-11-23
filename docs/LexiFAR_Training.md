@@ -47,9 +47,9 @@ The single-sentence command returns the source when an edit changes a protected 
 
 ## Train on the author revision expansion
 
-Train v8 from random weights with `.cache/academic-pairs-v3`. The completed local build contains 10,264 real and 12,000 synthetic sentence pairs, plus the separate grammar and word training supplements used by the recipe. Each sentence batch draws eight real pairs, six original synthetic pairs and two grammar pairs. The launcher verifies the corpus and loads the saved v1-trained byte-level BPE tokenizer. Validation and test contain the original 98 and 87 real pairs.
+Train v8 from random weights with `.cache/academic-pairs-v3`. Each sentence batch draws eight real pairs, six original synthetic pairs and two grammar pairs. The launcher verifies the corpus and loads the saved v1-trained byte-level BPE tokenizer.
 
-The current recipe gives P4 insertion and replacement tokens twice the weight of its edit boundaries and control tokens. Validation still uses unweighted P4 cross-entropy. The run uses seed 42 and up to 2,000 updates, checks validation every 250 updates and stops after four consecutive checks without improvement. The selected checkpoint and validation predictions go under `runs/six_layer_joint_v8_academic_pairs_v3_payload_2_best`. This weighted recipe awaits manual execution.
+The current recipe gives P4 insertion and replacement tokens twice the weight of its edit boundaries and control tokens. Checkpoint selection uses unweighted P4 validation cross-entropy. The run uses seed 42 and up to 2,000 updates, checks validation every 250 updates and stops after four consecutive checks without improvement. The selected checkpoint and validation exports go under `runs/six_layer_joint_v8_academic_pairs_v3_payload_2_best`.
 
 Run the PowerShell blocks from an installed checkout. Adjust the first `Set-Location` if your checkout is elsewhere. The training block builds v3 if needed and the pinned alignment is cached. [Environment setup](Environment_Setup.md) ? [Complete alignment download and v3 build commands](Dataset_Card.md#author-revision-expansion)
 
@@ -99,16 +99,16 @@ Run this after selecting the current checkpoint on validation. It evaluates all 
 }
 ```
 
-### Export validation predictions from an existing v3 run
+### Export validation predictions from the selected checkpoint
 
-Use this block to evaluate a completed fixed-update checkpoint. The output contains all 98 validation predictions and their edit diagnostics.
+Use this block to export the full validation split from a trained checkpoint.
 
 ```powershell
 & {
     Set-Location -LiteralPath 'P:\MLProject' -ErrorAction Stop
     $python = '.\.venv\Scripts\python.exe'
     $data = '.cache/academic-pairs-v3'
-    $run = 'runs/six_layer_joint_v8_academic_pairs_v3'
+    $run = 'runs/six_layer_joint_v8_academic_pairs_v3_payload_2_best'
     if (-not (Test-Path -LiteralPath "$run/result.json" -PathType Leaf -ErrorAction Stop)) {
         throw "Complete the v3 training run at $run before evaluating the validation split."
     }
@@ -117,18 +117,16 @@ Use this block to evaluate a completed fixed-update checkpoint. The output conta
 }
 ```
 
-### Compare source-copy settings on the completed v3 checkpoint
+### Compare source-copy settings on the selected checkpoint
 
-With the same tokenizer and frozen validation split, the v3 run reached P4 validation cross-entropy 4.853 at step 2,000. Its saved predictions scored 0.800 whitespace ROUGE-L versus 0.823 for copying the input. All 11 exact copies rendered generated edit records that left the text unchanged. Another 33 predictions only deleted text. The model returned three insertions across the split, while the aligned references contain 22. For example, in `00a677997fbda9ac`, it deleted `the` and missed the reference change from `in LayoutLM` to `into LayoutLM`.
-
-The two completed v8 runs used objective weights 0.5 for P3 sentence CE, 0.5 for P4 edit-program CE, 0.25 for word CE and 0.25 for source edit-position loss. The source copy head learns a gate that mixes source-token probabilities into P4. For span edits, it can supply replacement text drawn from the source. Compare the same saved weights with copy scales 1.0 and 0.5 to estimate the effect of that gate on generation.
+Run validation with copy scales 1.0 and 0.5 on the same checkpoint. Each scale writes to a separate output directory.
 
 ```powershell
 & {
     Set-Location -LiteralPath 'P:\MLProject' -ErrorAction Stop
     $python = '.\.venv\Scripts\python.exe'
     $data = '.cache/academic-pairs-v3'
-    $run = 'runs/six_layer_joint_v8_academic_pairs_v3'
+    $run = 'runs/six_layer_joint_v8_academic_pairs_v3_payload_2_best'
     if (-not (Test-Path -LiteralPath "$run/result.json" -PathType Leaf -ErrorAction Stop)) {
         throw "Complete the v3 training run at $run before comparing copy settings."
     }
@@ -183,7 +181,3 @@ For a changed corpus, use a new configuration and output directory that point to
 ```
 
 Tests cover causal isolation, source copy probabilities, edit alignment and gradients, cached/full-logit agreement, padding, balanced sampling, target-only loss, checkpoint reload and continuation, full prediction exports and synthetic-data isolation. Run the tests and study commands manually.
-
-## Evidence boundaries
-
-The real validation/test cases have already been inspected and are diagnostic rather than fresh confirmation. A changed output is not automatically an improvement. Overlap, copy rate and number preservation do not prove academic style, fluency or factual equivalence. Independent quality ratings and a successful-rewrite rate remain unavailable.
