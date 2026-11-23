@@ -19,6 +19,21 @@ def file_hash(path):
         for block in iter(lambda:stream.read(1024*1024),b''): digest.update(block)
     return digest.hexdigest()
 
+
+def load_prepared_tokenizer(data):
+    manifest = data / 'manifest.json'
+    if not manifest.is_file():
+        return None
+    expected = json.loads(manifest.read_text(encoding='utf8')).get('tokenizer_sha256')
+    if expected is None:
+        return None
+    directory = data / 'tokenizer'
+    if not directory.is_dir() or expected != {
+            path.name: file_hash(path) for path in directory.iterdir() if path.is_file()}:
+        raise ValueError(f'Prepared tokenizer fingerprint changed: {directory}')
+    return AutoTokenizer.from_pretrained(directory, local_files_only=True)
+
+
 def build_tokenizer(rows,out):
     tok=Tokenizer(models.WordLevel(unk_token='[UNK]')); tok.pre_tokenizer=pre_tokenizers.Whitespace()
     tok.train_from_iterator((r[k] for r in rows for k in ['source','target']),trainers.WordLevelTrainer(vocab_size=4000,special_tokens=['[PAD]','[BOS]','[EOS]','[UNK]']))
@@ -101,9 +116,11 @@ def run(args):
         raise ValueError('Continuation output must differ from its parent')
     if (out/'weights.pt').exists() and not args.overwrite:
         raise ValueError('Output already contains weights; use a new directory or explicit --overwrite')
+    data_dir = Path(args.data)
+    prepared_tokenizer = load_prepared_tokenizer(data_dir)
     out.mkdir(parents=True,exist_ok=True)
     result_path = out/'result.json'
-    all_train=read_rows(Path(args.data)/'train.jsonl'); validation=read_rows(Path(args.data)/'validation.jsonl')
+    all_train=read_rows(data_dir/'train.jsonl'); validation=read_rows(data_dir/'validation.jsonl')
     if not all_train or not validation: raise ValueError('Empty training or validation data')
     if any(row.get('synthetic') or row.get('training_only') or row.get('split') == 'train' for row in validation):
         raise ValueError('Sentence validation requires a nonsynthetic held-out split')
@@ -141,6 +158,9 @@ def run(args):
         if parent_meta['model']!='six_layer':
             raise ValueError('Continuation requires a six-layer checkpoint')
         tokenizer=AutoTokenizer.from_pretrained(parent/'tokenizer',local_files_only=True)
+        if (prepared_tokenizer is not None
+                and tokenizer.backend_tokenizer.to_str() != prepared_tokenizer.backend_tokenizer.to_str()):
+            raise ValueError('Continuation requires the same tokenizer as the prepared dataset')
         six_config=SixLayerConfig.load(parent/'six_layer_config.json')
         if args.depth is not None and args.depth != six_config.depth:
             raise ValueError(f'Continuation requires the saved depth ({six_config.depth})')
@@ -186,8 +206,10 @@ def run(args):
         result_path.unlink(missing_ok=True)
     (out/'run_args.json').write_text(json.dumps(vars(args),indent=2),encoding='utf8')
     if not parent:
-        build = build_tokenizer if args.tiny and not span_mode else build_subword_tokenizer
-        tokenizer = build(all_train + word_rows + grammar_rows, out/'tokenizer')
+        tokenizer = prepared_tokenizer
+        if tokenizer is None:
+            build = build_tokenizer if args.tiny and not span_mode else build_subword_tokenizer
+            tokenizer = build(all_train + word_rows + grammar_rows, out/'tokenizer')
         vocab_size = len(tokenizer) + (args.max_length + 1 if span_mode else 0)
         six_config=SixLayerConfig(vocab_size=vocab_size,d_model=32 if args.tiny else args.d_model,
             attention_heads=args.attention_heads,ffn_dim=64 if args.tiny else args.ffn_dim,
@@ -388,7 +410,7 @@ def run(args):
                                                    'Mean of medium and deep validation cross-entropies'))
         if six_config.contextual_edits:
             result['objective_weights']['source_edit'] = args.word_loss_weight
-    manifest=Path(args.data)/'manifest.json'
+    manifest=data_dir/'manifest.json'
     if manifest.exists():result['training_data_manifest_sha256']=file_hash(manifest)
     result.update(validation_examples_max_new_tokens=generation_budget, span_edits=six_config.span_edits,
                   added_edit_boundary_embeddings=six_config.edit_position_count if upgrade_spans else 0)

@@ -2,8 +2,11 @@ import json
 from pathlib import Path
 from tempfile import TemporaryDirectory
 import unittest
+from unittest.mock import patch
 
-from scripts.expand_academic_pairs import approved_additions, author_candidates, build, normalized_hash, sha256
+from scripts.expand_academic_pairs import (
+    approved_additions, author_candidates, build, compatible_author_pairs, normalized_hash, sha256,
+)
 
 
 def encode(value):
@@ -103,6 +106,41 @@ class ReviewedExpansionTests(unittest.TestCase):
 
 
 class AuthorExpansionTests(unittest.TestCase):
+    def test_author_encoding_preserves_and_pins_the_v1_tokenizer(self):
+        from academic_rewriter.run import build_subword_tokenizer, load_prepared_tokenizer
+
+        train = {'id': 'train', 'source': 'We use the data.', 'target': 'We used the data.'}
+        validation = dict(train, id='validation', source='We used that data.')
+        test = dict(train, id='test', source='We use these data.')
+        word = {'source': 'We use data.', 'target': 'We utilize data.'}
+        grammar = {'source': 'We use data.', 'target': 'We used data.'}
+        author = {'id': 'author', 'source': 'We utilize that data.', 'target': 'We used that data.'}
+        oversized = dict(author, id='oversized', source='data ' * 100)
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / 'word.jsonl').write_bytes(encode(word))
+            (root / 'grammar.jsonl').write_bytes(encode(grammar))
+            config = {
+                'settings': {'max_length': 32, 'word_data': 'word.jsonl', 'grammar_data': 'grammar.jsonl'},
+                'word_data_sha256': sha256(encode(word)),
+                'grammar_data_sha256': sha256(encode(grammar)),
+            }
+            base = {'train': [train], 'validation': [validation], 'test': [test]}
+            tokenizer_dir = root / 'tokenizer'
+            with (patch('scripts.expand_academic_pairs.MIN_REAL_PAIRS', 2),
+                  patch('academic_rewriter.run.build_subword_tokenizer', wraps=build_subword_tokenizer) as fit):
+                additions = compatible_author_pairs(root, [author, oversized], base, config, 1, tokenizer_dir)
+            fit.assert_called_once_with([train, word, grammar], tokenizer_dir)
+            self.assertEqual(additions, [author])
+
+            hashes = {path.name: sha256(path.read_bytes()) for path in tokenizer_dir.iterdir()}
+            (root / 'manifest.json').write_bytes(encode({'tokenizer_sha256': hashes}))
+            tokenizer = load_prepared_tokenizer(root)
+            self.assertLessEqual(len(tokenizer(author['source'])['input_ids']), 32)
+            (tokenizer_dir / 'tokenizer.json').write_bytes(b'{}')
+            with self.assertRaisesRegex(ValueError, 'Prepared tokenizer fingerprint changed'):
+                load_prepared_tokenizer(root)
+
     def test_author_screen_preserves_protected_content_and_partitions(self):
         lexical = ('Our method makes use of sparse operations for GPU training.',
                    'Our method uses sparse operations for GPU training.')

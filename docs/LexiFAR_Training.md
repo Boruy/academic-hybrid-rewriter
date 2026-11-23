@@ -117,16 +117,28 @@ Use the same validation cases to compare which needed edits each model completes
 
 ## Train on the author revision expansion
 
-The [v3 data build](Dataset_Card.md#author-revision-expansion) produces a local experiment config for a controlled comparison with the v8 run on v1. It uses the same six-layer architecture, from-scratch initialization, batch composition, learning rate, update budget and validation cadence. Each batch draws its eight real pairs from the expanded author revision pool. The 98 validation and 87 test cases have the original bytes.
+The v3 data build produces a local experiment config for a controlled comparison with the v8 run on v1. It uses the same six-layer architecture, random model initialization, batch composition, learning rate, update budget and validation cadence. Each batch draws its eight real pairs from the expanded author revision pool. The 98 validation and 87 test cases have the original bytes. Training verifies and loads the v1-trained BPE tokenizer saved during the 192-token encoding check. [v3 data build](Dataset_Card.md#author-revision-expansion)
+
+```powershell
+$python = '.\.venv\Scripts\python.exe'
+& $python -m unittest discover -s tests -p 'test_academic_pair_expansion.py' -v
+if ($LASTEXITCODE -ne 0) { throw 'Expansion regression test failed. See the output above.' }
+& $python scripts/expand_academic_pairs.py --author-revisions
+```
+
+After the builder reports at least 10,000 real pairs and creates `experiment.json`, train and evaluate v8.
 
 ```powershell
 $python = '.\.venv\Scripts\python.exe'
 $data = '.cache/academic-pairs-v3'
 $run = 'runs/six_layer_joint_v8_academic_pairs_v3'
-& $python -m unittest discover -s tests -p 'test_academic_pair_expansion.py' -v
-& $python scripts/expand_academic_pairs.py --author-revisions
+if (-not (Test-Path -LiteralPath "$data/experiment.json" -PathType Leaf)) {
+    throw 'Complete the v3 data build before training.'
+}
 & $python scripts/train_six_layer.py --config "$data/experiment.json" --print-command
+if ($LASTEXITCODE -ne 0) { throw 'Training config check failed. See the output above.' }
 & $python scripts/train_six_layer.py --config "$data/experiment.json"
+if ($LASTEXITCODE -ne 0) { throw 'Training failed. See the output above.' }
 & $python -m academic_rewriter.test --checkpoint $run --data $data --split validation --max-new-tokens 194 --limit 0
 ```
 
@@ -140,8 +152,13 @@ The v1 from-scratch run recorded its lowest P4 validation loss at step 500. For 
 $python = '.\.venv\Scripts\python.exe'
 $data = '.cache/academic-pairs-v3'
 $run = 'runs/six_layer_joint_v8_academic_pairs_v3_best'
+if (-not (Test-Path -LiteralPath "$data/experiment.json" -PathType Leaf)) {
+    throw 'Complete the v3 data build before training.'
+}
 & $python -m unittest discover -s tests -p 'test_span_edits.py' -v
+if ($LASTEXITCODE -ne 0) { throw 'Span editing regression test failed. See the output above.' }
 & $python scripts/train_six_layer.py --config "$data/experiment.json" --checkpoint-selection best-validation --early-stopping-patience 4 --output $run
+if ($LASTEXITCODE -ne 0) { throw 'Training failed. See the output above.' }
 & $python -m academic_rewriter.test --checkpoint $run --data $data --split validation --max-new-tokens 194 --limit 0
 ```
 

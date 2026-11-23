@@ -204,7 +204,7 @@ def author_candidates(papers, base_rows, references, partition):
     return candidates
 
 
-def compatible_author_pairs(root, candidates, base_rows, config, base_real_count):
+def compatible_author_pairs(root, candidates, base_rows, config, base_real_count, tokenizer_dir):
     from academic_rewriter.joint_words import word_replacements
     from academic_rewriter.lexical import read_lexical_training
     from academic_rewriter.run import build_subword_tokenizer
@@ -222,37 +222,36 @@ def compatible_author_pairs(root, candidates, base_rows, config, base_real_count
     fixed_rows = base_train + base_rows['validation'] + base_rows['test'] + grammar_rows
     replacements = word_replacements(word_rows)
 
-    def span_error(row, tokenizer, span_config):
-        if any(len(tokenizer(row[field])['input_ids']) > maximum for field in ('source', 'target')):
-            return f'source or target exceeds {maximum} tokens'
+    print(f'Checking v8 encoding with {len(candidates)} screened author pairs and the v1 training tokenizer', flush=True)
+    tokenizer = build_subword_tokenizer(base_train + word_rows + grammar_rows, tokenizer_dir)
+    span_config = SixLayerConfig(
+        vocab_size=len(tokenizer) + maximum + 1, max_positions=2 * maximum + 2,
+        depth='joint', word_replacements=replacements, prediction_stages=4,
+        fuse_stage_outputs=True, span_edits=True,
+        pad_token_id=tokenizer.pad_token_id, bos_token_id=tokenizer.bos_token_id,
+        eos_token_id=tokenizer.eos_token_id,
+    )
+
+    def span_error(row):
+        for field in ('source', 'target'):
+            length = len(tokenizer(row[field])['input_ids'])
+            if length > maximum:
+                return f'{field} encodes to {length} tokens (limit {maximum})'
         try:
             encode_edit_program(row['source'], row['target'], tokenizer, span_config, maximum)
         except ValueError as error:
             return str(error)
         return None
 
-    cache = root / '.cache'
-    cache.mkdir(parents=True, exist_ok=True)
-    with TemporaryDirectory(prefix='lexifar-span-screen-', dir=cache) as temporary:
-        while base_real_count + len(candidates) >= MIN_REAL_PAIRS:
-            print(f'Checking v8 encoding with {len(candidates)} screened author pairs', flush=True)
-            tokenizer = build_subword_tokenizer(base_train + candidates + word_rows + grammar_rows, Path(temporary))
-            span_config = SixLayerConfig(
-                vocab_size=len(tokenizer) + maximum + 1, max_positions=2 * maximum + 2,
-                depth='joint', word_replacements=replacements, prediction_stages=4,
-                fuse_stage_outputs=True, span_edits=True,
-                pad_token_id=tokenizer.pad_token_id, bos_token_id=tokenizer.bos_token_id,
-                eos_token_id=tokenizer.eos_token_id,
-            )
-            usable = [row for row in candidates if span_error(row, tokenizer, span_config) is None]
-            if len(usable) == len(candidates):
-                for row in fixed_rows:
-                    issue = span_error(row, tokenizer, span_config)
-                    if issue:
-                        raise ValueError(f"Frozen sample {row['id']} fails v8 encoding: {issue}")
-                return usable
-            candidates = usable
-    raise ValueError(f'Only {base_real_count + len(candidates)} real pairs fit the v8 corpus, which needs {MIN_REAL_PAIRS}')
+    for row in fixed_rows:
+        issue = span_error(row)
+        if issue:
+            raise ValueError(f"Frozen sample {row['id']} fails v8 encoding: {issue}")
+    usable = [row for row in candidates if span_error(row) is None]
+    real_count = base_real_count + len(usable)
+    if real_count < MIN_REAL_PAIRS:
+        raise ValueError(f'Only {real_count} real pairs fit the v8 corpus, which needs {MIN_REAL_PAIRS}')
+    return usable
 
 
 def build(root, version, review_paths=None, *, alignment_path=None):
@@ -290,65 +289,71 @@ def build(root, version, review_paths=None, *, alignment_path=None):
     config_bytes = config_path.read_bytes()
     config = json.loads(config_bytes)
     counts = dict(base_manifest['counts'])
-    if alignment_path is None:
-        review_files = [path.read_bytes() for path in review_paths]
-        additions, review_hashes = approved_additions(review_files, references, partition)
-        if not additions:
-            raise ValueError('No training pairs passed both independent reviews. No expanded dataset was created.')
-        source_details = {
-            'review_files_sha256': review_hashes,
-            'approved_training': len(additions),
-            'approved_documents': len({row['doc_id'] for row in additions}),
-        }
-        description = 'approved pairs'
-    else:
-        alignment = alignment_path.read_bytes()
-        alignment_hash = sha256(alignment)
-        if alignment_hash != partition['file_sha256'][ALIGNMENT_FILE]['sha256']:
-            raise ValueError('Expected the pinned upstream arXivEdits sentence alignment train file')
-        screened = author_candidates(json.loads(alignment), base_rows, references, partition)
-        additions = compatible_author_pairs(root, screened, base_rows, config, counts['real_training'])
-        source_details = {
-            'alignment_sha256': alignment_hash,
-            'screening_code_sha256': sha256(Path(__file__).read_bytes()),
-            'minimum_word_overlap': MIN_WORD_OVERLAP,
-            'screened_training_candidates': len(screened),
-            'author_revision_training': len(additions),
-            'author_revision_documents': len({row['group_id'] for row in additions}),
-            'edit_kinds': dict(Counter(row['edit_kind'] for row in additions)),
-            'approved_training': 0,
-        }
-        description = 'automatically screened author revisions'
-
-    check_isolation(additions, base_rows, references, partition)
-    extra = ''.join(json.dumps(row, ensure_ascii=False) + '\n' for row in additions).encode('utf8')
-    separator = b'' if data['train'].endswith(b'\n') else b'\n'
-    data['train'] += separator + extra
-    counts['real_training'] += len(additions)
-    counts['total_training'] += len(additions)
-
-    config.update(study=f'six-layer-v8-{study}', data=dataset_path.as_posix(),
-                  output=f"runs/six_layer_joint_v8_{study.replace('-', '_')}")
-    manifest = {
-        'version': study,
-        'base_study': 'data/academic-pairs-v1',
-        'base_manifest_sha256': sha256(base_manifest_bytes),
-        'base_train_sha256': base_manifest['data_sha256']['train'],
-        'generator_code_sha256': generator_hash,
-        'base_experiment_sha256': sha256(config_bytes),
-        'data_sha256': {split: sha256(raw) for split, raw in data.items()},
-        'counts': counts,
-        'arxivedits': {
-            'revision': partition['revision'],
-            'references_sha256': sha256(reference_bytes),
-            'frozen_partition_sha256': sha256(frozen_bytes),
-            **source_details,
-        },
-    }
     output.parent.mkdir(parents=True, exist_ok=True)
     with TemporaryDirectory(prefix='lexifar-expansion-', dir=output.parent) as temporary:
         stage = Path(temporary) / study
         stage.mkdir()
+        tokenizer_dir = stage / 'tokenizer'
+        if alignment_path is None:
+            review_files = [path.read_bytes() for path in review_paths]
+            additions, review_hashes = approved_additions(review_files, references, partition)
+            if not additions:
+                raise ValueError('No training pairs passed both independent reviews. No expanded dataset was created.')
+            source_details = {
+                'review_files_sha256': review_hashes,
+                'approved_training': len(additions),
+                'approved_documents': len({row['doc_id'] for row in additions}),
+            }
+            description = 'approved pairs'
+        else:
+            alignment = alignment_path.read_bytes()
+            alignment_hash = sha256(alignment)
+            if alignment_hash != partition['file_sha256'][ALIGNMENT_FILE]['sha256']:
+                raise ValueError('Expected the pinned upstream arXivEdits sentence alignment train file')
+            screened = author_candidates(json.loads(alignment), base_rows, references, partition)
+            additions = compatible_author_pairs(root, screened, base_rows, config, counts['real_training'], tokenizer_dir)
+            source_details = {
+                'alignment_sha256': alignment_hash,
+                'screening_code_sha256': sha256(Path(__file__).read_bytes()),
+                'minimum_word_overlap': MIN_WORD_OVERLAP,
+                'screened_training_candidates': len(screened),
+                'author_revision_training': len(additions),
+                'author_revision_documents': len({row['group_id'] for row in additions}),
+                'edit_kinds': dict(Counter(row['edit_kind'] for row in additions)),
+                'approved_training': 0,
+            }
+            description = 'automatically screened author revisions'
+            config['initialization'] = 'Random model weights and the prepared byte-level BPE tokenizer fitted to v1 training text'
+
+        check_isolation(additions, base_rows, references, partition)
+        extra = ''.join(json.dumps(row, ensure_ascii=False) + '\n' for row in additions).encode('utf8')
+        separator = b'' if data['train'].endswith(b'\n') else b'\n'
+        data['train'] += separator + extra
+        counts['real_training'] += len(additions)
+        counts['total_training'] += len(additions)
+
+        config.update(study=f'six-layer-v8-{study}', data=dataset_path.as_posix(),
+                      output=f"runs/six_layer_joint_v8_{study.replace('-', '_')}")
+        manifest = {
+            'version': study,
+            'base_study': 'data/academic-pairs-v1',
+            'base_manifest_sha256': sha256(base_manifest_bytes),
+            'base_train_sha256': base_manifest['data_sha256']['train'],
+            'generator_code_sha256': generator_hash,
+            'base_experiment_sha256': sha256(config_bytes),
+            'data_sha256': {split: sha256(raw) for split, raw in data.items()},
+            'counts': counts,
+            'arxivedits': {
+                'revision': partition['revision'],
+                'references_sha256': sha256(reference_bytes),
+                'frozen_partition_sha256': sha256(frozen_bytes),
+                **source_details,
+            },
+        }
+        if alignment_path is not None:
+            manifest['tokenizer_sha256'] = {
+                path.name: sha256(path.read_bytes()) for path in sorted(tokenizer_dir.iterdir()) if path.is_file()
+            }
         for split in SPLITS:
             (stage / (split + '.jsonl')).write_bytes(data[split])
         for name, value in (('manifest.json', manifest), ('experiment.json', config)):

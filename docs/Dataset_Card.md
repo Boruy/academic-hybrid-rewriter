@@ -70,7 +70,7 @@ A read-only inventory of the pinned input counted 9,786 screened revisions from 
 .\.venv\Scripts\python.exe scripts/expand_academic_pairs.py --author-revisions
 ```
 
-The builder fits the v8 tokenizer on the candidate training corpus and removes new pairs that exceed the sequence limit or fail edit encoding. It repeats the check on the selected corpus before publishing `.cache/academic-pairs-v3`. The study requires at least **10,000 real training pairs** including the original 491. Its validation and test files are byte-for-byte copies of v1. The local manifest records actual counts and fingerprints. See [the v8 training and validation commands](LexiFAR_Training.md#train-on-the-author-revision-expansion).
+The builder fits the v8 byte-level BPE tokenizer on the frozen v1 sentence training corpus and its word and grammar supplements. It checks that the frozen pairs fit the 192-token limit and edit encoding, then removes new pairs that fail those checks. The study requires at least **10,000 real training pairs** including the original 491. Its validation and test files are byte-for-byte copies of v1. The builder publishes `.cache/academic-pairs-v3` with the checked tokenizer and records its fingerprints in the manifest. Training verifies and uses those files. See [the v8 training and validation commands](LexiFAR_Training.md#train-on-the-author-revision-expansion).
 
 ## Loading and tokenization
 
