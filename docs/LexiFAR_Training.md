@@ -93,7 +93,9 @@ $run = 'runs/six_layer_joint_v8_spans_scratch'
 & $python -m academic_rewriter.test --checkpoint $run --split validation --max-new-tokens 194 --limit 0
 ```
 
-The earlier 1,000-step continuation from v7 is available in `runs/six_layer_joint_v8_spans`. For a separate continuation, pass `--init-checkpoint` with a compatible checkpoint and choose a separate `--output` directory. Compare the source, reference and assembled prediction in `evaluation/validation-194/predictions.csv`. The JSONL records `edits` with source character offsets and `edit_error`. Inspect those fields to distinguish a deliberate retain decision from an invalid attempt. The from-scratch checkpoint and its evaluation await manual execution.
+The earlier 1,000-step continuation from v7 is available in `runs/six_layer_joint_v8_spans`. For a separate continuation, pass `--init-checkpoint` with a compatible checkpoint and choose a separate `--output` directory. Compare the source, reference and assembled prediction in `evaluation/validation-194/predictions.csv`. The JSONL records `edits` with source character offsets and `edit_error`. Inspect those fields to distinguish a deliberate retain decision from an invalid attempt.
+
+The local v1 from-scratch run finished 2,000 updates. It recorded a minimum P4 validation cross-entropy of 5.564 and saved the final step with a validation cross-entropy of 6.566. Its 98 saved validation predictions score 0.747 ROUGE-L. The input-copy baseline scores 0.823.
 
 ## Train on the reviewed expansion
 
@@ -110,6 +112,23 @@ $run = 'runs/six_layer_joint_v8_academic_pairs_v2'
 ```
 
 Use the same validation cases to compare which needed edits each model completes, where it makes unnecessary edits, and whether it preserves facts and qualifiers. The independent reviews, dataset build and training comparison are pending.
+
+## Train on the author revision expansion
+
+The [v3 data build](Dataset_Card.md#author-revision-expansion) produces a local experiment config for a controlled comparison with the v8 run on v1. It uses the same six-layer architecture, from-scratch initialization, batch composition, learning rate, update budget and validation cadence. Each batch draws its eight real pairs from the expanded author revision pool. The 98 validation and 87 test cases have the original bytes.
+
+```powershell
+$python = '.\.venv\Scripts\python.exe'
+$data = '.cache/academic-pairs-v3'
+$run = 'runs/six_layer_joint_v8_academic_pairs_v3'
+& $python -m unittest discover -s tests -p 'test_academic_pair_expansion.py' -v
+& $python scripts/expand_academic_pairs.py --author-revisions
+& $python scripts/train_six_layer.py --config "$data/experiment.json" --print-command
+& $python scripts/train_six_layer.py --config "$data/experiment.json"
+& $python -m academic_rewriter.test --checkpoint $run --data $data --split validation --max-new-tokens 194 --limit 0
+```
+
+Compare the validation loss trajectory and inspect the same validation sentences for needed edits, unintended changes and preservation of technical claims. The model training, regression test and generation comparison are manual steps.
 
 ## Evaluate the entire split
 

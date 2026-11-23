@@ -3,7 +3,7 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 import unittest
 
-from scripts.expand_academic_pairs import approved_additions, build, normalized_hash, sha256
+from scripts.expand_academic_pairs import approved_additions, author_candidates, build, normalized_hash, sha256
 
 
 def encode(value):
@@ -100,6 +100,48 @@ class ReviewedExpansionTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, 'protected document'):
                 build(root, 3, reviews)
             self.assertFalse((root / '.cache/academic-pairs-v3').exists())
+
+
+class AuthorExpansionTests(unittest.TestCase):
+    def test_author_screen_preserves_protected_content_and_partitions(self):
+        lexical = ('Our method makes use of sparse operations for GPU training.',
+                   'Our method uses sparse operations for GPU training.')
+        punctuation = ('In this experiment the measured errors remained stable.',
+                       'In this experiment, the measured errors remained stable.')
+        held_out = 'We developed a novel method for comparing the observed scores.'
+        pairs = [
+            lexical,
+            punctuation,
+            ('The implementation processed 200 samples in the second experiment.',
+             'The implementation processed 201 samples in the second experiment.'),
+            ('Our algorithm does not depend on the choice of basis.',
+             'Our algorithm does depend on the choice of basis.'),
+            ('The GPU experiment uses a deterministic sampling strategy for comparison.',
+             'The CPU experiment uses a deterministic sampling strategy for comparison.'),
+            ('The resulting estimate in [EQUATION] agrees with the measured values.',
+             'The resulting estimate agrees with the measured values.'),
+            (held_out, 'We developed a method for comparing the observed scores.'),
+        ]
+
+        def paper(revisions):
+            return {
+                '1': {f'old-{i}': s for i, (s, _) in enumerate(revisions)},
+                '2': {f'new-{i}': t for i, (_, t) in enumerate(revisions)},
+                'alignment': [[f'old-{i}', f'new-{i}'] for i in range(len(revisions))],
+                'license': {'1': 'fixture-license', '2': 'fixture-license'},
+            }
+
+        corpus = {'new-paper': paper(pairs), 'hep-ph-1234567': paper([lexical])}
+        partition = {'documents': {'hep-ph/1234567': 'test'}, 'revision': 'fixture',
+                     'previously_inspected_documents': []}
+        base = {'train': [], 'validation': [{'source': held_out, 'target': held_out}], 'test': []}
+        candidates = author_candidates(corpus, base, [], partition)
+
+        self.assertEqual([(row['source'], row['target']) for row in candidates], [lexical, punctuation])
+        self.assertEqual([row['edit_kind'] for row in candidates], ['word_change', 'punctuation_or_case'])
+        self.assertTrue(all(row['split'] == 'train' and row['training_only'] for row in candidates))
+        self.assertTrue(all(not row['synthetic'] and not row['human_verified'] for row in candidates))
+        self.assertTrue(all(row['doc_id'] == 'new-paper' for row in candidates))
 
 
 if __name__ == '__main__':

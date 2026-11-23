@@ -56,7 +56,21 @@ $reviews = '.cache/academic-refinement/review-v2/train'
 & $python scripts/expand_academic_pairs.py --reviews "$reviews/train_curator_1.jsonl" "$reviews/train_curator_2.jsonl"
 ```
 
-The builder binds reviewed text to the frozen references, checks for duplicate pairs and overlap with protected documents and held-out text, and writes `.cache/academic-pairs-v2` once it has at least one jointly approved pair. It appends approved real pairs to the v1 training bytes and copies the original 98 validation and 87 test pairs byte for byte. The local manifest records review, source and dataset fingerprints and counts. The local experiment config reuses the v8 recipe and assigns a dedicated run directory. Use `--version 3` for a later expansion of the review pool. See [the training commands](LexiFAR_Training.md#train-on-the-reviewed-expansion).
+The builder binds reviewed text to the frozen references, checks for duplicate pairs and overlap with protected documents and held-out text, and writes `.cache/academic-pairs-v2` once it has at least one jointly approved pair. It appends approved real pairs to the v1 training bytes and copies the original 98 validation and 87 test pairs byte for byte. The local manifest records review, source and dataset fingerprints and counts. The local experiment config reuses the v8 recipe and assigns a dedicated run directory. Use a fresh `--version` for a later expansion of the review pool. See [the training commands](LexiFAR_Training.md#train-on-the-reviewed-expansion).
+
+## Author revision expansion
+
+The v3 experiment adds actual author revisions from the pinned [arXivEdits training alignment file](https://github.com/chaojiang06/arXivEdits/blob/113913d68522c1c8428d8e191d5c9bed633da6ce/data/sentence_alignment/train.json). The cached input is `.cache/arxivedits/train_alignment.json`. Its SHA-256 must match the entry in `data/curation/arxivedits/frozen_partition.json`.
+
+The builder takes one-to-one sentence alignments between successive paper versions, with at least 75% word-order similarity. It checks length, numbers, selected negation and qualifier words, acronyms, equation and citation placeholders, and the two version license records. It includes qualifying punctuation and case changes, excludes duplicate pairs and protected papers or text, and records the source sentence IDs and hashes. New rows are training-only and carry `human_verified: false`. Their quality supervision comes from the authors' revisions and the automated screen.
+
+A read-only inventory of the pinned input counted 9,786 screened revisions from 434 papers, including 8,331 word changes and 1,455 punctuation or case changes. The v1 real pairs bring the count to 10,277 before v8 encoding checks.
+
+```powershell
+.\.venv\Scripts\python.exe scripts/expand_academic_pairs.py --author-revisions
+```
+
+The builder fits the v8 tokenizer on the candidate training corpus and removes new pairs that exceed the sequence limit or fail edit encoding. It repeats the check on the selected corpus before publishing `.cache/academic-pairs-v3`. The study requires at least **10,000 real training pairs** including the original 491. Its validation and test files are byte-for-byte copies of v1. The local manifest records actual counts and fingerprints. See [the v8 training and validation commands](LexiFAR_Training.md#train-on-the-author-revision-expansion).
 
 ## Loading and tokenization
 
