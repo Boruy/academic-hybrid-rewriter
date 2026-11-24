@@ -2,7 +2,7 @@
 
 See the [LexiFAR architecture](LexiFAR_Architecture.md) for the four stages, word feedback and final fusion.
 
-The model contains exactly **six sequence layers**:
+The default backbone contains exactly **six sequence layers**.
 
 | Layer | Module | Function |
 | --- | --- | --- |
@@ -17,13 +17,13 @@ Each block has normalization and a residual path. Token, position and source/tar
 
 ## Conditional generation
 
-Sentence training uses `[BOS] source [EOS] [BOS] target [EOS]`. P3 predicts the full reference and P4 predicts the edit program. Only target positions contribute to each shifted loss. The word loss comes from a separate batch of contextual word labels in the same optimizer step. Source-only word guidance is fused before the second LSTM, the Transformers and the Mamba blocks. Attention is causal, and the LSTM is unidirectional. Right padding is masked from the loss and recurrent state updates.
+Sentence training uses `[BOS] source [EOS] [BOS] target [EOS]`. P3 predicts the full reference and P4 predicts the edit program. Only target positions contribute to each shifted loss. The word loss comes from a separate batch of contextual word labels in the same optimizer step. Source-only word guidance is fused before the second recurrent block and before blocks 3 and 5. Attention is causal, and the recurrent blocks are unidirectional. Right padding is masked from the loss and recurrent state updates.
 
 With `source_copy` enabled, the fused prediction learns a per-token gate between the vocabulary distribution and attention over preceding or current source tokens. The copy distribution sums mass at repeated token IDs and excludes sentence markers, padding and target tokens. P4 minimizes the negative log probability of the reference token under the mixture.
 
 `contextual_edits` adds a generic edit decision to the shared word head so it can score spans throughout the source. Training aligns each real source and reference at word and punctuation boundaries. Replaced or deleted spans supervise `EDIT` and matched spans supervise `KEEP`. These automatic labels use the frozen real training pairs. The guides use the source at training and inference. P4 subtracts the unexpanded E3 edit weight from each source position's copy attention logit. This keeps the copy bias local to the predicted word positions.
 
-Generation consumes the source prefix and greedily predicts target tokens. LSTM and Mamba states, the Transformers' past normalized states and the copy head's source positions are cached. The returned sequence begins with an initial BOS marker that is excluded from generated-token counts.
+Generation consumes the source prefix and greedily predicts target tokens. The cache stores the recurrent and Mamba states, past normalized states for Transformer attention and source positions for the copy head. The returned sequence begins with an initial BOS marker that is excluded from generated-token counts.
 
 The Mamba module is the plain-PyTorch Mamba-1 reference recurrence, not an optimized official CUDA kernel. No speed or numerical-parity claim is made. Transformer attention remains quadratic.
 
@@ -80,6 +80,40 @@ Run the PowerShell blocks from an installed checkout. Adjust the first `Set-Loca
 ```
 
 The completed run records `selected_step` in `result.json` and saves the selected model in `weights.pt`. Check needed edits, malformed replacements and protected-expression changes alongside the copy baseline in `evaluation/validation-194`.
+
+## Compare LSTM and tanh RNN front ends
+
+Use `--recurrent-block rnn` to put a unidirectional tanh RNN at each of the first two positions. Use `--middle-block ffn` to run the third and fourth blocks with their tokenwise feed-forward sublayers alone. P1–P4 read layers 1, 2, 4 and 6 in every run. All runs use the same word feedback, source copy head and whole-word edit decoder. Checkpoints save both block choices and use them for evaluation and continuation. Earlier checkpoint configs load with LSTM and Transformer blocks.
+
+The block below uses the prepared v3 corpus and tokenizer. Run the v3 build procedure if the experiment config is missing. It trains each layout from scratch for 2,000 updates with seed 42, uses the same P4 weights and selects the lowest P4 validation loss. Use `$middleBlocks = @('transformer')` for the two-run recurrent comparison. Include `ffn` to measure the contribution of middle self-attention for each recurrent choice. [Build the v3 corpus](Dataset_Card.md#author-revision-expansion)
+
+```powershell
+& {
+    Set-Location -LiteralPath 'P:\MLProject' -ErrorAction Stop
+    $python = '.\.venv\Scripts\python.exe'
+    $data = '.cache/academic-pairs-v3'
+    $config = "$data/experiment.json"
+    $study = 'runs/six_layer_joint_v8_v3_recurrent_ablation'
+    $recurrentBlocks = @('lstm', 'rnn')
+    $middleBlocks = @('transformer', 'ffn')
+    if (-not (Test-Path -LiteralPath $config -PathType Leaf -ErrorAction Stop)) {
+        throw 'Build v3 using the author revision expansion commands in docs/Dataset_Card.md.'
+    }
+    foreach ($middle in $middleBlocks) {
+        foreach ($recurrent in $recurrentBlocks) {
+            $run = "$study/$recurrent-$middle"
+            & $python scripts/train_six_layer.py --config $config --output $run --recurrent-block $recurrent --middle-block $middle --steps 2000 --seed 42 --span-payload-weight 2.0 --checkpoint-selection best-validation --early-stopping-patience 0
+            if ($LASTEXITCODE -ne 0) { throw "Training failed for $recurrent-$middle." }
+            & $python -m academic_rewriter.test --checkpoint $run --data $data --split validation --batch-size 8 --max-new-tokens 194 --limit 0 --span-copy-scale 1.0
+            if ($LASTEXITCODE -ne 0) { throw "Validation failed for $recurrent-$middle." }
+        }
+    }
+}
+```
+
+Compare the Transformer runs for the effect of changing the recurrent block. For each recurrent choice, subtract the FFN run's validation ROUGE-L from the corresponding Transformer run's ROUGE-L to measure the attention gain on that diagnostic. Also compare P4 cross-entropy, edit accuracy and protected-expression changes. `result.json` records the actual layer layout and parameter counts. These layouts have different parameter counts at the same width.
+
+In `evaluation/validation-194/metrics.json`, `source_edit_positions` counts source word or punctuation spans changed in both outputs (`matched`), only in the reference (`missed`), or only in the prediction (`extra`). It also reports micro precision and recall. Use the aligned predictions to judge whether each replacement is correct. Pure insertions contribute to the insertion count in `edit_operation_counts`. Use the independent word evaluation for P2 replacement accuracy when reviewed word pairs are available. [Word evaluation](LexiFAR_Architecture.md#test-the-fused-rewrite)
 
 ## Evaluate the entire split
 

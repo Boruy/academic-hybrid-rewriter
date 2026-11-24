@@ -24,6 +24,8 @@
 
 每个 token 位置的 F1–F4 特征拼接后，用一层可学习的 `4d → d` 投影融合成 P4 的输入。训练和缓存解码都从原文计算词级引导，参考答案用于训练监督。详见[结构图与联合训练说明](LexiFAR_Architecture.md#architecture-and-loss)。
 
+默认主干使用两层 LSTM。设置 `--recurrent-block rnn` 可在相同的两个层位使用单向 tanh RNN。设置 `--middle-block ffn` 可用中间两层逐 token 的前馈网络做自注意力对照。四组均在第 1、2、4、6 层读出，使用相同的词级反馈、联合损失、原文复制头和整词编辑解码。检查点保存实际的层类型，早期配置按 LSTM 和 Transformer 加载。[RNN 与自注意力对照命令](LexiFAR_Training.md#compare-lstm-and-tanh-rnn-front-ends)
+
 P4 对原文位置计算注意力，通过学习得到的权重混合复制概率与词表生成概率。v6 在复制注意力上减去 E3 边缘增强前的编辑位置权重，使复制更偏向模型判断应保留的原词。多次出现的原文 token 会合并概率，句首、句末、填充和目标段 token 不参与复制。旧检查点按保存的配置加载。
 
 句级训练以原文作前缀，只对参考改写的 token 计算交叉熵。常规训练从随机权重开始，字节级 BPE 分词器只使用两个训练语料拟合。推理按顺序贪心生成。Mamba 使用 PyTorch 实现的参考递推。
@@ -82,6 +84,8 @@ v3 构建生成 `.cache/academic-pairs-v3/experiment.json`，其中隐藏维度�
 ### 单句改写、测试与结果查看
 
 训练结束后，用 `runs/six_layer_joint_v8_academic_pairs_v3_payload_2_best` 检查点试用单句改写和全量测试。`evaluation/validation-194/` 和 `evaluation/test-194/` 中的 `predictions.csv`、`predictions.jsonl` 和 `metrics.json` 记录原文、参考、预测及编辑诊断。[单句改写命令](LexiFAR_Architecture.md#generate-a-final-rewrite) · [全量测试命令](LexiFAR_Training.md#evaluate-the-entire-split) · [独立词级评估](LexiFAR_Architecture.md#test-the-fused-rewrite)
+
+RNN 对照采用同一 v3 分词器、训练数据、种子和固定 2,000 步预算，输出到 `runs/six_layer_joint_v8_v3_recurrent_ablation`。先比较两组带 Transformer 的改写，再分别计算 LSTM、RNN 搭配自注意力相对 FFN 的验证指标增益。整词编辑评估新增 `source_edit_positions`，统计与参考命中的位置、漏改位置、额外改动位置及精确率和召回率。具体替换是否正确仍要看逐句预测。四组训练和评价待手动运行。[PowerShell 对照流程](LexiFAR_Training.md#compare-lstm-and-tanh-rnn-front-ends)
 
 ## 已有运行的逐条结果
 
@@ -157,6 +161,7 @@ v6 已保存同一检查点启用和停用引导的两份验证预测。v7 语�
 
 | 日期 | 改动 | 验证与状态 |
 | --- | --- | --- |
+| 2026-11-24 | 增加两层单向 tanh RNN 前端和中间两层 FFN 的自注意力对照，导出实际层序及最终编辑位置指标。 | 已静态核对训练、配置加载、缓存与评估路径及 PowerShell 命令。回归测试、四组训练与验证待手动运行。 |
 | 2026-11-23 | 更新英文横版 LexiFAR v8 流程图，补齐 P4 整词编辑解码、事实保护和联合损失。 | 核对模型、训练目标和推理代码，检查 SVG 结构与渲染。 |
 | 2026-11-23 | 训练文档聚焦模型介绍和当前 v8 + v3 运行指令，历史结果集中在中文总览。 | 已静态核对命令语法和文档链接。训练和评估由用户运行。 |
 | 2026-11-23 | 训练文档统一使用 v8 + v3 的替换内容加权流程，选用最低验证损失的检查点。README、架构说明、数据卡和中文总览链接到统一入口。 | 已静态核对命令、路径与文档链接。当前训练流程待手动运行。 |

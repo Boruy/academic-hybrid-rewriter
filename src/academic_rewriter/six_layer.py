@@ -1,4 +1,4 @@
-"""A causal rewriting model with 2 LSTM, 2 Transformer and 2 Mamba blocks.
+"""A causal rewriting model with six blocks and front-end ablations.
 
 The source is a prefix, followed by the target. Only target tokens contribute to
 the sentence loss. Embeddings and the tied vocabulary projection are not sequence
@@ -22,6 +22,8 @@ NEURAL_DEPTHS = {'medium': 4, 'deep': 6}
 CHECKPOINT_DEPTHS = ('joint', *NEURAL_DEPTHS)
 WORD_LAYERS = 2
 FOUR_STAGE_LAYERS = (1, WORD_LAYERS, *NEURAL_DEPTHS.values())
+RECURRENT_BLOCKS = ('lstm', 'rnn')
+MIDDLE_BLOCKS = ('transformer', 'ffn')
 
 
 def word_boundary_guide(edit, rows, spans, text_mask, *, include_positions=False):
@@ -55,8 +57,14 @@ class SixLayerConfig:
     source_copy: bool = False
     contextual_edits: bool = False
     span_edits: bool = False
+    recurrent_block: str = 'lstm'
+    middle_block: str = 'transformer'
 
     def __post_init__(self):
+        if self.recurrent_block not in RECURRENT_BLOCKS:
+            raise ValueError(f'Unknown recurrent block: {self.recurrent_block}')
+        if self.middle_block not in MIDDLE_BLOCKS:
+            raise ValueError(f'Unknown middle block: {self.middle_block}')
         if self.depth not in CHECKPOINT_DEPTHS:
             raise ValueError(f'Unknown checkpoint depth: {self.depth}')
         if (self.depth == 'joint') != bool(self.word_replacements):
@@ -109,13 +117,15 @@ class SixLayerConfig:
         return cls(**json.loads(Path(path).read_text(encoding='utf8')))
 
 
-class LSTMBlock(nn.Module):
-    kind = 'lstm'
-
+class RecurrentBlock(nn.Module):
     def __init__(self, config):
         super().__init__()
+        self.kind = config.recurrent_block
         self.norm = nn.LayerNorm(config.d_model)
-        self.rnn = nn.LSTM(config.d_model, config.d_model, num_layers=1, batch_first=True)
+        if self.kind == 'rnn':
+            self.rnn = nn.RNN(config.d_model, config.d_model, nonlinearity='tanh', batch_first=True)
+        else:
+            self.rnn = nn.LSTM(config.d_model, config.d_model, batch_first=True)
         self.dropout = nn.Dropout(config.dropout)
 
     def forward(self, hidden, mask):
@@ -127,43 +137,51 @@ class LSTMBlock(nn.Module):
 
     def step(self, hidden, valid, state):
         output, candidate = self.rnn(self.norm(hidden).unsqueeze(1), state)
-        if state is None:
-            state = tuple(torch.zeros_like(value) for value in candidate)
-        state = tuple(torch.where(valid[None, :, None], new, old)
-                      for new, old in zip(candidate, state))
+        update = valid[None, :, None]
+        if isinstance(candidate, tuple):
+            if state is None:
+                state = tuple(torch.zeros_like(value) for value in candidate)
+            state = tuple(torch.where(update, new, old) for new, old in zip(candidate, state, strict=True))
+        else:
+            previous = torch.zeros_like(candidate) if state is None else state
+            state = torch.where(update, candidate, previous)
         return (hidden + self.dropout(output[:, 0])) * valid[:, None], state
 
 
 class TransformerBlock(nn.Module):
-    kind = 'transformer'
-
     def __init__(self, config):
         super().__init__()
-        self.norm = nn.LayerNorm(config.d_model)
-        self.attention = nn.MultiheadAttention(config.d_model, config.attention_heads,
-                                                dropout=config.dropout, batch_first=True)
+        self.kind = config.middle_block
+        self.attention = None
+        if self.kind == 'transformer':
+            self.norm = nn.LayerNorm(config.d_model)
+            self.attention = nn.MultiheadAttention(config.d_model, config.attention_heads,
+                                                   dropout=config.dropout, batch_first=True)
         self.ffn_norm = nn.LayerNorm(config.d_model)
         self.ffn = nn.Sequential(nn.Linear(config.d_model, config.ffn_dim), nn.GELU(),
                                  nn.Dropout(config.dropout), nn.Linear(config.ffn_dim, config.d_model))
         self.dropout = nn.Dropout(config.dropout)
 
     def forward(self, hidden, mask):
-        normalized = self.norm(hidden)
-        causal = torch.ones(hidden.size(1), hidden.size(1), device=hidden.device,
-                            dtype=torch.bool).triu(1)
-        output, _ = self.attention(normalized, normalized, normalized, attn_mask=causal,
-                                   key_padding_mask=~mask.bool(), need_weights=False)
-        hidden = hidden + self.dropout(output)
+        if self.attention is not None:
+            normalized = self.norm(hidden)
+            causal = torch.ones(hidden.size(1), hidden.size(1), device=hidden.device,
+                                dtype=torch.bool).triu(1)
+            output, _ = self.attention(normalized, normalized, normalized, attn_mask=causal,
+                                       key_padding_mask=~mask.bool(), need_weights=False)
+            hidden = hidden + self.dropout(output)
         return (hidden + self.dropout(self.ffn(self.ffn_norm(hidden)))) * mask.unsqueeze(-1)
 
     def step(self, hidden, valid, state):
-        query = self.norm(hidden).unsqueeze(1)
-        keys = query if state is None else torch.cat([state[0], query], 1)
-        mask = valid[:, None] if state is None else torch.cat([state[1], valid[:, None]], 1)
-        output, _ = self.attention(query, keys, keys, key_padding_mask=~mask, need_weights=False)
-        hidden = hidden + self.dropout(output[:, 0])
+        if self.attention is not None:
+            query = self.norm(hidden).unsqueeze(1)
+            keys = query if state is None else torch.cat([state[0], query], 1)
+            mask = valid[:, None] if state is None else torch.cat([state[1], valid[:, None]], 1)
+            output, _ = self.attention(query, keys, keys, key_padding_mask=~mask, need_weights=False)
+            hidden = hidden + self.dropout(output[:, 0])
+            state = (keys, mask)
         hidden = (hidden + self.dropout(self.ffn(self.ffn_norm(hidden)))) * valid[:, None]
-        return hidden, (keys, mask)
+        return hidden, state
 
 
 class MambaBlock(nn.Module):
@@ -243,7 +261,6 @@ class SourceCopyHead(nn.Module):
 
 
 class SixLayerRewriter(nn.Module):
-    layer_layout = ('lstm', 'lstm', 'transformer', 'transformer', 'mamba', 'mamba')
     input_embedding_init_std = 0.02
 
     def __init__(self, config):
@@ -254,9 +271,10 @@ class SixLayerRewriter(nn.Module):
         self.position_embedding = nn.Embedding(config.max_positions, config.d_model)
         self.segment_embedding = nn.Embedding(2, config.d_model)
         self.embedding_dropout = nn.Dropout(config.dropout)
-        self.layers = nn.ModuleList([LSTMBlock(config), LSTMBlock(config),
+        self.layers = nn.ModuleList([RecurrentBlock(config), RecurrentBlock(config),
                                      TransformerBlock(config), TransformerBlock(config),
                                      MambaBlock(config), MambaBlock(config)])
+        self.layer_layout = tuple(layer.kind for layer in self.layers)
         joint = config.depth == 'joint'
         self.sentence_depths = tuple(NEURAL_DEPTHS) if joint else (config.depth,)
         self.active_layer_count = NEURAL_DEPTHS[self.sentence_depths[-1]]

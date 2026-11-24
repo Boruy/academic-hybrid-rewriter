@@ -8,7 +8,7 @@ from pathlib import Path
 
 import torch
 from .evaluate import evaluate
-from .joint_words import WordTask
+from .joint_words import WordTask, changed_source_spans
 from .lexical import evaluate_lexical, read_lexical_evaluation
 from .rewrite import generate_predictions, load_checkpoint
 from .run import batch, read_rows, target_token_count
@@ -64,6 +64,13 @@ def sentence_metrics(predictions, depth, cross_entropy):
         metrics['fact_error_counts'] = dict(Counter(row['fact_error'] for row in predictions if row.get('fact_error')))
     if predictions and 'edit_status' in predictions[0]:
         edits = [edit for row in predictions for edit in row['edits']]
+        matched = missed = extra = 0
+        for row in predictions:
+            reference = changed_source_spans(row['source'], row['reference'])
+            predicted = changed_source_spans(row['source'], row['prediction'])
+            matched += len(reference & predicted)
+            missed += len(reference - predicted)
+            extra += len(predicted - reference)
         metrics.update(
             edit_status_counts=dict(Counter(row['edit_status'] for row in predictions)),
             edit_operation_counts=dict(
@@ -75,6 +82,11 @@ def sentence_metrics(predictions, depth, cross_entropy):
                                     for row in predictions),
             unchanged_when_reference_changed_count=sum(
                 row['prediction'] == row['source'] and row['reference'] != row['source'] for row in predictions
+            ),
+            source_edit_positions=dict(
+                matched=matched, missed=missed, extra=extra,
+                precision=matched / (matched + extra) if matched + extra else None,
+                recall=matched / (matched + missed) if matched + missed else None,
             ),
         )
     return metrics
@@ -184,6 +196,7 @@ def run(args):
             if word_rows is not None:
                 metrics['word_test'] = evaluate_lexical(word_task, word_rows)
     metrics.update(checkpoint=str(root.resolve()), split=args.split, device=str(device),
+                   recurrent_block=model.config.recurrent_block, middle_block=model.config.middle_block,
                    rewrite_depth='final' if fused else model.config.depth, active_sequence_layers=model.active_layer_count,
                    cross_entropy=average, max_length=max_length,
                    max_new_tokens=args.max_new_tokens, num_beams=1, do_sample=False,

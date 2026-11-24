@@ -8,7 +8,7 @@ from tokenizers import Tokenizer,models,pre_tokenizers,trainers,processors,decod
 from .joint_words import WordTask, edit_target_weights, word_replacements
 from .lexical import read_lexical_training
 from .rewrite import generate_predictions
-from .six_layer import CHECKPOINT_DEPTHS, SixLayerConfig, SixLayerRewriter
+from .six_layer import CHECKPOINT_DEPTHS, MIDDLE_BLOCKS, RECURRENT_BLOCKS, SixLayerConfig, SixLayerRewriter
 from .span_edits import edit_labels, span_payload_weights
 
 def read_rows(path): return [json.loads(s) for s in Path(path).read_text(encoding='utf8').splitlines() if s.strip()]
@@ -168,6 +168,10 @@ def run(args):
         six_config=SixLayerConfig.load(parent/'six_layer_config.json')
         if args.depth is not None and args.depth != six_config.depth:
             raise ValueError(f'Continuation requires the saved depth ({six_config.depth})')
+        if args.recurrent_block is not None and args.recurrent_block != six_config.recurrent_block:
+            raise ValueError(f'Continuation requires the saved recurrent block ({six_config.recurrent_block})')
+        if args.middle_block is not None and args.middle_block != six_config.middle_block:
+            raise ValueError(f'Continuation requires the saved middle block ({six_config.middle_block})')
         if args.word_guidance is not None and (args.word_guidance == 'candidates') != six_config.candidate_guidance:
             raise ValueError('Continuation requires the saved word guidance')
         if args.source_copy is not None and args.source_copy != six_config.source_copy:
@@ -224,7 +228,8 @@ def run(args):
             eos_token_id=tokenizer.eos_token_id,depth=depth,word_replacements=replacements,
             prediction_stages=4 if depth == 'joint' else 3, fuse_stage_outputs=depth == 'joint',
             candidate_guidance=depth == 'joint' and args.word_guidance != 'position',
-            source_copy=bool(args.source_copy), contextual_edits=bool(args.contextual_edits), span_edits=span_mode)
+            source_copy=bool(args.source_copy), contextual_edits=bool(args.contextual_edits), span_edits=span_mode,
+            recurrent_block=args.recurrent_block or 'lstm', middle_block=args.middle_block or 'transformer')
     elif upgrade_spans:
         six_config = replace(six_config, span_edits=True, vocab_size=len(tokenizer) + six_config.max_positions // 2)
     tokenizer.padding_side='right'; tokenizer.save_pretrained(out/'tokenizer')
@@ -388,6 +393,7 @@ def run(args):
     result.update(steps=actual_steps,requested_steps=args.steps,final_step_validation_cross_entropy=final_vl,checkpoint_selection=args.checkpoint_selection,selected_step=best_step if args.checkpoint_selection=='best-validation' else actual_steps,best_recorded_validation_cross_entropy=best_value,final_learning_rate=optimizer.param_groups[0]['lr'],lr_scheduler=args.lr_scheduler,seconds_validation=validation_seconds,sampling=args.sampling,examples_seen=examples_seen,dataset_equivalent_passes=examples_seen/len(train),optimizer_reinitialized=True,parent_checkpoint=str(parent) if parent else None,parent_weights_sha256=file_hash(parent/'weights.pt') if parent else None,data_sha256={split:file_hash(Path(args.data)/(split+'.jsonl')) for split in ['train','validation']})
     result.update(initialization=('local checkpoint: '+str(parent)) if parent else 'random six-layer model; training-only tokenizer',
         backend='reference',layer_layout=list(model.layer_layout),sequence_layers=6,
+        recurrent_block=six_config.recurrent_block, middle_block=six_config.middle_block,
         rewrite_depth=six_config.depth,active_sequence_layers=model.active_layer_count,
         active_layer_layout=list(model.layer_layout[:model.active_layer_count]),
         conditional_generation='causal source prefix with source copying and target-only token loss'
@@ -451,6 +457,10 @@ def parser():
     p.add_argument('--log-every', type=int, default=1, help='Print progress every N updates (default: 1)')
     p.add_argument('--depth', choices=CHECKPOINT_DEPTHS,
                    help='New runs default to joint; continuations use the saved depth')
+    p.add_argument('--recurrent-block', choices=RECURRENT_BLOCKS,
+                   help='First two blocks: LSTM (default) or single-direction tanh RNN')
+    p.add_argument('--middle-block', choices=MIDDLE_BLOCKS,
+                   help='Middle two blocks: causal Transformer (default) or tokenwise feed-forward only')
     p.add_argument('--word-data', default='data/word-formality-v1/train.jsonl', help='Word training pairs for the joint model')
     p.add_argument('--word-loss-weight', type=float, default=.25, help='Weight on the joint single-word cross-entropy')
     p.add_argument('--grammar-data', help='Optional synthetic grammar pairs for training')

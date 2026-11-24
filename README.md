@@ -4,7 +4,7 @@
 
 **LexiFAR** (Lexically Guided Feature Fusion for Academic Rewriting) revises English research sentences. A shared word edit module passes edit locations and probability-weighted replacement vectors between stages. Features from all four stages fuse into a single rewritten sentence. See the [LexiFAR architecture](docs/LexiFAR_Architecture.md).
 
-The model has **2 LSTM + 2 Transformer + 2 Mamba** sequence blocks and trains from scratch with a training-only tokenizer. See [LexiFAR model and training](docs/LexiFAR_Training.md) for the layer configuration and commands.
+The default backbone has **2 LSTM + 2 Transformer + 2 Mamba** sequence blocks and trains from scratch with a training-only tokenizer. The training guide includes a comparison with two tanh RNN blocks and a middle self-attention ablation. [LexiFAR model and training](docs/LexiFAR_Training.md#compare-lstm-and-tanh-rnn-front-ends)
 
 This repository contains the datasets and their provenance, the six-layer model, training and full-split evaluation code, and the supporting configuration and checks. Checkpoints, prediction files and generated reports stay local in ignored directories. Historical baseline implementations, presentations and report pipelines have been removed.
 

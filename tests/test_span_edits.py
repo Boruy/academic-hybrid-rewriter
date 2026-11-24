@@ -13,7 +13,7 @@ from academic_rewriter.rewrite import generate_predictions, load_checkpoint, rew
 from academic_rewriter.run import build_subword_tokenizer, parser, read_rows, run
 from academic_rewriter.six_layer import SixLayerConfig, SixLayerRewriter, SourceCopyHead
 from academic_rewriter.span_edits import EditProgramDecoder, apply_edit_program, encode_edit_program, span_payload_weights
-from academic_rewriter.test import parser as evaluation_parser, run as evaluate_checkpoint
+from academic_rewriter.test import parser as evaluation_parser, run as evaluate_checkpoint, sentence_metrics
 
 
 WORDS = [dict(source='We get access.', target='We gain access.', synthetic=True, split='train')]
@@ -66,6 +66,14 @@ class SpanEditTests(unittest.TestCase):
             results = generate_predictions(model, tokenizer, [source, source], inputs, 24)
             self.assertEqual([row['prediction'] for row, _ in results], [source, source])
             self.assertEqual([row['edit_status'] for row, _ in results], ['retain', 'noop_edit'])
+
+    def test_scores_final_edit_positions_against_the_reference(self):
+        row = dict(source='We get access to those datasets.', reference='We gain access to the datasets.',
+                   prediction='We gain access to those samples.', edit_status='edited',
+                   edits=[dict(source='get', target='gain'), dict(source='datasets', target='samples')],
+                   generation_limit_reached=False, input_truncated=False, target_truncated=False)
+        scores = sentence_metrics([row], 'deep', 1.)['source_edit_positions']
+        self.assertEqual(scores, dict(matched=1, missed=1, extra=1, precision=.5, recall=.5))
 
     def test_identifies_protected_changes_in_raw_edits(self):
         cases = [

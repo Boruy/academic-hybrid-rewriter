@@ -17,6 +17,10 @@ def main():
     parser.add_argument('--init-checkpoint', help='Override the initial checkpoint in the experiment config')
     parser.add_argument('--depth', choices=['joint', 'medium', 'deep'],
                         help='Default is joint; medium and deep train a single output')
+    parser.add_argument('--recurrent-block', choices=['lstm', 'rnn'],
+                        help='Override the first two recurrent blocks')
+    parser.add_argument('--middle-block', choices=['transformer', 'ffn'],
+                        help='Override the middle two blocks for the self-attention comparison')
     parser.add_argument('--word-guidance', choices=['position', 'candidates'],
                         help='Override the joint word guidance in the experiment config')
     parser.add_argument('--log-every', type=int, help='Print progress every N updates')
@@ -63,6 +67,10 @@ def main():
             settings.pop('source_copy', None)
             settings.pop('contextual_edits', None)
             settings.pop('span_edits', None)
+    if args.recurrent_block:
+        settings['recurrent_block'] = args.recurrent_block
+    if args.middle_block:
+        settings['middle_block'] = args.middle_block
     if args.word_guidance:
         settings['word_guidance'] = args.word_guidance
     if args.log_every is not None:
